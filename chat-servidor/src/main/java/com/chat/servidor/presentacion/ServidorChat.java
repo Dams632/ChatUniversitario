@@ -1,13 +1,17 @@
 package com.chat.servidor.presentacion;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -23,7 +27,10 @@ import com.chat.transcripcion.ServicioTranscripcion;
  */
 public class ServidorChat {
     
-    private static final int PUERTO = 5000;
+    // Valores por defecto (pueden ser sobrescritos por config.properties)
+    private static final int PUERTO_DEFAULT = 5000;
+    private static final String HOST_DEFAULT = "0.0.0.0";
+    
     private static ServidorChat instancia;
     private ServerSocket serverSocket;
     private boolean ejecutando;
@@ -31,9 +38,23 @@ public class ServidorChat {
     private List<ManejadorCliente> clientesConectados;
     private ServidorFrame gui;
     private ServicioCanal servicioCanal;
+    private int puerto;
+    private String host;
     
     public ServidorChat() {
         this.clientesConectados = new ArrayList<>();
+        this.puerto = PUERTO_DEFAULT;
+        this.host = HOST_DEFAULT;
+        instancia = this;
+    }
+    
+    /**
+     * Constructor con puerto y host personalizados
+     */
+    public ServidorChat(String host, int puerto) {
+        this.clientesConectados = new ArrayList<>();
+        this.puerto = puerto;
+        this.host = host;
         instancia = this;
     }
     
@@ -300,20 +321,31 @@ public class ServidorChat {
             // Inicializar servicio de transcripción de audio
             inicializarServicioTranscripcion();
             
-            // Crear socket del servidor
-            serverSocket = new ServerSocket(PUERTO);
+            // Crear socket del servidor con host y puerto específicos
+            InetAddress direccion;
+            if (host.equals("0.0.0.0")) {
+                // Escuchar en todas las interfaces
+                serverSocket = new ServerSocket(puerto);
+                direccion = InetAddress.getLocalHost();
+            } else {
+                // Escuchar en una interfaz específica
+                direccion = InetAddress.getByName(host);
+                serverSocket = new ServerSocket();
+                serverSocket.bind(new InetSocketAddress(direccion, puerto));
+            }
+            
             ejecutando = true;
             
             System.out.println("===========================================");
             System.out.println("   SERVIDOR DE CHAT UNIVERSITARIO");
             System.out.println("===========================================");
-            System.out.println("Servidor iniciado en puerto: " + PUERTO);
+            System.out.println("Servidor iniciado en: " + direccion.getHostAddress() + ":" + puerto);
             System.out.println("Esperando conexiones de clientes...");
             System.out.println("===========================================\n");
             
             // Lanzar GUI en el hilo de Swing
             if (gui != null) {
-                gui.agregarLog("Servidor iniciado en puerto " + PUERTO);
+                gui.agregarLog("Servidor iniciado en " + direccion.getHostAddress() + ":" + puerto);
                 gui.agregarLog("Esperando conexiones...");
             }
             
@@ -454,8 +486,39 @@ public class ServidorChat {
      * Método principal
      */
     public static void main(String[] args) {
-        // Crear instancia del servidor
-        ServidorChat servidor = new ServidorChat();
+        // Leer configuración del servidor
+        String host = HOST_DEFAULT;
+        int puerto = PUERTO_DEFAULT;
+        
+        try {
+            Properties config = new Properties();
+            File configFile = new File("src/main/resources/config.properties");
+            
+            // Intentar leer desde varios lugares
+            if (configFile.exists()) {
+                config.load(new FileInputStream(configFile));
+            } else {
+                // Intentar cargar desde el classpath
+                config.load(ServidorChat.class.getClassLoader().getResourceAsStream("config.properties"));
+            }
+            
+            host = config.getProperty("server.host", HOST_DEFAULT);
+            puerto = Integer.parseInt(config.getProperty("server.port", String.valueOf(PUERTO_DEFAULT)));
+            
+            System.out.println("Configuración cargada:");
+            System.out.println("  Host: " + host);
+            System.out.println("  Puerto: " + puerto);
+            System.out.println();
+            
+        } catch (Exception e) {
+            System.out.println("No se pudo cargar configuración, usando valores por defecto:");
+            System.out.println("  Host: " + host);
+            System.out.println("  Puerto: " + puerto);
+            System.out.println();
+        }
+        
+        // Crear instancia del servidor con la configuración
+        ServidorChat servidor = new ServidorChat(host, puerto);
         
         // Configurar Look and Feel
         SwingUtilities.invokeLater(() -> {

@@ -8,6 +8,7 @@ import javax.swing.UIManager;
 import com.chat.cliente.datos.ConexionH2;
 import com.chat.cliente.negocio.ServicioCliente;
 import com.chat.cliente.presentacion.gui.ChatPrincipalFrame;
+import com.chat.cliente.presentacion.gui.ConexionServidorDialog;
 import com.chat.cliente.presentacion.gui.LoginFrameRefactored;
 import com.chat.cliente.presentacion.gui.LoginFrameRefactored.LoginCallback;
 import com.chat.common.dto.ResponseDTO;
@@ -271,17 +272,7 @@ public class ClienteChat {
             e.printStackTrace();
         }
         
-        // Crear instancia de ServicioCliente
-        ServicioCliente servicioCliente = new ServicioCliente(HOST, PUERTO);
-        
-        // Agregar shutdown hook
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\nCerrando cliente...");
-            servicioCliente.desconectar();
-            ConexionH2.cerrarConexion();
-        }));
-        
-        // Lanzar GUI de login
+        // Lanzar GUI de conexión al servidor
         SwingUtilities.invokeLater(() -> {
             try {
                 // Configurar Look and Feel del sistema
@@ -290,7 +281,36 @@ public class ClienteChat {
                 System.err.println("No se pudo establecer el Look and Feel del sistema");
             }
             
-            System.out.println("Iniciando interfaz gráfica...");
+            System.out.println("Mostrando diálogo de configuración de servidor...");
+            
+            // Mostrar diálogo de conexión
+            ConexionServidorDialog dialogConexion = new ConexionServidorDialog(null);
+            dialogConexion.setVisible(true);
+            
+            // Verificar si el usuario conectó
+            if (!dialogConexion.isConectado()) {
+                System.out.println("✗ Usuario canceló la conexión");
+                System.exit(0);
+                return;
+            }
+            
+            // Obtener configuración del servidor
+            String host = dialogConexion.getHost();
+            int puerto = dialogConexion.getPuerto();
+            
+            System.out.println("✓ Configuración del servidor: " + host + ":" + puerto);
+            
+            // Crear instancia de ServicioCliente con la configuración proporcionada
+            ServicioCliente servicioCliente = new ServicioCliente(host, puerto);
+            
+            // Agregar shutdown hook
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("\nCerrando cliente...");
+                servicioCliente.desconectar();
+                ConexionH2.cerrarConexion();
+            }));
+            
+            System.out.println("Iniciando interfaz gráfica de login...");
             
             // Crear callback para después del login exitoso
             LoginCallback callback = new LoginCallback() {

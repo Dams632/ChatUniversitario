@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 echo ========================================
 echo   INICIALIZACION BASE DE DATOS MySQL
 echo   Chat Universitario
@@ -8,7 +9,52 @@ echo.
 REM Configuracion
 set MYSQL_USER=root
 set DB_SCRIPT=database\init_mysql.sql
+set MYSQL_CMD=
 
+REM Buscar MySQL en ubicaciones comunes
+echo Buscando instalacion de MySQL...
+echo.
+
+if exist "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" (
+    set MYSQL_CMD=C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe
+    echo [OK] MySQL encontrado en: %MYSQL_CMD%
+) else if exist "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" (
+    set MYSQL_CMD=C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe
+    echo [OK] MySQL encontrado en: %MYSQL_CMD%
+) else if exist "C:\Program Files\MySQL\MySQL Server 9.0\bin\mysql.exe" (
+    set MYSQL_CMD=C:\Program Files\MySQL\MySQL Server 9.0\bin\mysql.exe
+    echo [OK] MySQL encontrado en: %MYSQL_CMD%
+) else if exist "C:\xampp\mysql\bin\mysql.exe" (
+    set MYSQL_CMD=C:\xampp\mysql\bin\mysql.exe
+    echo [OK] MySQL encontrado en XAMPP: %MYSQL_CMD%
+) else if exist "C:\wamp64\bin\mysql\mysql8.0.31\bin\mysql.exe" (
+    set MYSQL_CMD=C:\wamp64\bin\mysql\mysql8.0.31\bin\mysql.exe
+    echo [OK] MySQL encontrado en WAMP: %MYSQL_CMD%
+) else (
+    where mysql.exe >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set MYSQL_CMD=mysql.exe
+        echo [OK] MySQL encontrado en PATH del sistema
+    ) else (
+        echo [ERROR] MySQL no se encontro en las ubicaciones comunes.
+        echo.
+        echo Por favor, ingresa la ruta completa a mysql.exe
+        echo Ejemplo: C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe
+        echo.
+        set /p MYSQL_CMD="Ruta de mysql.exe: "
+        
+        if not exist "!MYSQL_CMD!" (
+            echo.
+            echo [ERROR] La ruta especificada no existe: !MYSQL_CMD!
+            echo.
+            echo Verifica la instalacion de MySQL e intenta nuevamente.
+            pause
+            exit /b 1
+        )
+    )
+)
+
+echo.
 echo Este script creara la base de datos 'chat_universitario' en MySQL
 echo.
 echo Asegurate de que MySQL este ejecutandose antes de continuar.
@@ -23,7 +69,7 @@ echo Conectando a MySQL...
 echo ----------------------------------------
 
 REM Ejecutar el script SQL
-mysql -u %MYSQL_USER% -p%MYSQL_PASSWORD% < %DB_SCRIPT%
+"%MYSQL_CMD%" -u %MYSQL_USER% -p%MYSQL_PASSWORD% < %DB_SCRIPT%
 
 if %ERRORLEVEL% EQU 0 (
     echo.
