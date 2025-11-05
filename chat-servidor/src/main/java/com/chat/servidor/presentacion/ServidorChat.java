@@ -19,9 +19,11 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import com.chat.common.models.Canal;
+import com.chat.common.models.Usuario;
 import com.chat.common.patterns.EventoChat;
 import com.chat.common.patterns.Observer;
 import com.chat.servidor.datos.ConexionDB;
+import com.chat.servidor.negocio.ServicioAutenticacion;
 import com.chat.servidor.negocio.ServicioCanal;
 import com.chat.servidor.presentacion.gui.ServidorFrame;
 import com.chat.transcripcion.ServicioTranscripcion;
@@ -43,6 +45,7 @@ public class ServidorChat implements Observer {
     private List<ManejadorCliente> clientesConectados;
     private ServidorFrame gui;
     private ServicioCanal servicioCanal;
+    private ServicioAutenticacion servicioAutenticacion;
     private int puerto;
     private String host;
     private int maxUsuariosConectados;
@@ -481,6 +484,7 @@ public class ServidorChat implements Observer {
             
             // Inicializar servicios
             this.servicioCanal = new ServicioCanal(conexionDB);
+            this.servicioAutenticacion = new ServicioAutenticacion(conexionDB);
             
             // Inicializar servicio de transcripción de audio
             inicializarServicioTranscripcion();
@@ -561,6 +565,16 @@ public class ServidorChat implements Observer {
         } finally {
             detener();
         }
+    }
+
+    public Usuario crearUsuarioDesdeServidor(String username, String email, String password, String direccionIP, byte[] foto) throws SQLException {
+        if (servicioAutenticacion == null) {
+            throw new IllegalStateException("Servicio de autenticación no inicializado");
+        }
+        String ipRegistrada = (direccionIP == null || direccionIP.trim().isEmpty()) ? "CONSOLE" : direccionIP.trim();
+        Usuario usuario = servicioAutenticacion.registrar(username, email, password, ipRegistrada, foto);
+        registrarEvento("Usuario creado desde panel del servidor: " + username + " (IP: " + ipRegistrada + ")");
+        return usuario;
     }
     
     /**
@@ -712,7 +726,7 @@ public class ServidorChat implements Observer {
             }
             
             // Crear y mostrar GUI
-            servidor.gui = new ServidorFrame(servidor.clientesConectados);
+            servidor.gui = new ServidorFrame(servidor, servidor.clientesConectados);
             servidor.gui.setVisible(true);
             servidor.gui.agregarLog("Interfaz gráfica iniciada");
         });

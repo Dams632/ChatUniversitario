@@ -7,31 +7,55 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Image;
+import java.awt.Insets;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 
+import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 
 import com.chat.servidor.presentacion.ManejadorCliente;
+import com.chat.servidor.presentacion.ServidorChat;
 import com.chat.servidor.presentacion.gui.utils.FontHelper;
 
 /**
  * Ventana principal del servidor para gestionar conexiones de clientes
  */
 public class ServidorFrame extends JFrame {
+    private static final int MIN_USERNAME_LENGTH = 3;
+    private static final int MAX_USERNAME_LENGTH = 20;
+    private static final int MIN_PASSWORD_LENGTH = 6;
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    private static final Pattern IP_PATTERN = Pattern.compile("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4}$");
+    private final ServidorChat servidor;
     
     private JTable tablaClientes;
     private DefaultTableModel modeloTabla;
@@ -47,7 +71,8 @@ public class ServidorFrame extends JFrame {
     /**
      * Constructor
      */
-    public ServidorFrame(List<ManejadorCliente> clientesConectados) {
+    public ServidorFrame(ServidorChat servidor, List<ManejadorCliente> clientesConectados) {
+        this.servidor = servidor;
         this.clientesConectados = clientesConectados;
         initComponents();
     }
@@ -189,6 +214,20 @@ public class ServidorFrame extends JFrame {
         
         controlesPanel.add(Box.createRigidArea(new Dimension(0, 15)));
         
+    JLabel lblUsuarios = new JLabel("Gestión de Usuarios");
+    lblUsuarios.setFont(new Font("Segoe UI", Font.BOLD, 14));
+    lblUsuarios.setForeground(new Color(52, 73, 94));
+    lblUsuarios.setAlignmentX(Component.LEFT_ALIGNMENT);
+    controlesPanel.add(lblUsuarios);
+
+    controlesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+
+    JButton btnCrearUsuario = crearBoton("➕ Crear Usuario", new Color(39, 174, 96));
+    btnCrearUsuario.addActionListener(e -> mostrarDialogoCrearUsuario());
+    controlesPanel.add(btnCrearUsuario);
+
+    controlesPanel.add(Box.createRigidArea(new Dimension(0, 20)));
+
         // Botón actualizar
         btnActualizar = crearBoton("🔄 Actualizar", new Color(52, 152, 219));
         btnActualizar.addActionListener(e -> actualizarTabla());
@@ -285,6 +324,205 @@ public class ServidorFrame extends JFrame {
         panel.add(logPanel);
         
         return panel;
+    }
+
+    private void mostrarDialogoCrearUsuario() {
+    JTextField txtUsername = new JTextField();
+    JTextField txtEmail = new JTextField();
+    JTextField txtIp = new JTextField();
+        JPasswordField txtPassword = new JPasswordField();
+        JPasswordField txtConfirmar = new JPasswordField();
+        JLabel lblFotoPreview = new JLabel("Sin foto");
+        lblFotoPreview.setHorizontalAlignment(JLabel.CENTER);
+        lblFotoPreview.setPreferredSize(new Dimension(90, 90));
+    lblFotoPreview.setOpaque(true);
+    lblFotoPreview.setBackground(new Color(236, 240, 241));
+    lblFotoPreview.setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 1));
+    lblFotoPreview.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+    lblFotoPreview.setForeground(Color.GRAY);
+        final byte[][] fotoSeleccionada = new byte[1][];
+
+    JButton btnSeleccionarFoto = new JButton("Seleccionar foto...");
+    btnSeleccionarFoto.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+    btnSeleccionarFoto.setBackground(new Color(149, 165, 166));
+    btnSeleccionarFoto.setForeground(Color.WHITE);
+    btnSeleccionarFoto.setFocusPainted(false);
+    btnSeleccionarFoto.setBorderPainted(false);
+    btnSeleccionarFoto.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    btnSeleccionarFoto.addActionListener(evt -> seleccionarFoto(lblFotoPreview, fotoSeleccionada));
+
+    Dimension fieldSize = new Dimension(240, 26);
+    txtUsername.setPreferredSize(fieldSize);
+    txtEmail.setPreferredSize(fieldSize);
+    txtIp.setPreferredSize(fieldSize);
+    txtPassword.setPreferredSize(fieldSize);
+    txtConfirmar.setPreferredSize(fieldSize);
+
+    JPanel panel = new JPanel(new GridBagLayout());
+    panel.setBackground(Color.WHITE);
+    panel.setBorder(new EmptyBorder(10, 5, 10, 5));
+
+    GridBagConstraints gbcLabel = new GridBagConstraints();
+    gbcLabel.gridx = 0;
+    gbcLabel.anchor = GridBagConstraints.WEST;
+    gbcLabel.insets = new Insets(6, 8, 6, 8);
+
+    GridBagConstraints gbcField = new GridBagConstraints();
+    gbcField.gridx = 1;
+    gbcField.weightx = 1.0;
+    gbcField.fill = GridBagConstraints.HORIZONTAL;
+    gbcField.insets = new Insets(6, 8, 6, 8);
+
+    int fila = 0;
+
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Usuario:"), gbcLabel);
+    panel.add(txtUsername, gbcField);
+
+    fila++;
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Correo electrónico:"), gbcLabel);
+    panel.add(txtEmail, gbcField);
+
+    fila++;
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Dirección IP:"), gbcLabel);
+    panel.add(txtIp, gbcField);
+
+    fila++;
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Contraseña:"), gbcLabel);
+    panel.add(txtPassword, gbcField);
+
+    fila++;
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Confirmar contraseña:"), gbcLabel);
+    panel.add(txtConfirmar, gbcField);
+
+    fila++;
+    gbcLabel.gridy = fila;
+    gbcField.gridy = fila;
+    panel.add(new JLabel("Foto de perfil (opcional):"), gbcLabel);
+
+    JPanel fotoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+    fotoPanel.setBackground(Color.WHITE);
+    fotoPanel.add(lblFotoPreview);
+    fotoPanel.add(btnSeleccionarFoto);
+    panel.add(fotoPanel, gbcField);
+
+        int resultado = JOptionPane.showConfirmDialog(
+            this,
+            panel,
+            "Crear nuevo usuario",
+            JOptionPane.OK_CANCEL_OPTION,
+            JOptionPane.PLAIN_MESSAGE
+        );
+
+        if (resultado != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        String username = txtUsername.getText().trim();
+        String email = txtEmail.getText().trim();
+        String ip = txtIp.getText().trim();
+        char[] passwordChars = txtPassword.getPassword();
+        char[] confirmarChars = txtConfirmar.getPassword();
+        String password = new String(passwordChars);
+        String confirmar = new String(confirmarChars);
+        Arrays.fill(passwordChars, '\0');
+        Arrays.fill(confirmarChars, '\0');
+
+        if (username.isEmpty() || email.isEmpty() || ip.isEmpty() || password.isEmpty() || confirmar.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Todos los campos son obligatorios", "Datos incompletos", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String validationError = validarDatosRegistro(username, email, ip, password, confirmar);
+        if (validationError != null) {
+            JOptionPane.showMessageDialog(this, validationError, "Validación", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        try {
+            servidor.crearUsuarioDesdeServidor(username, email, password, ip, fotoSeleccionada[0]);
+            JOptionPane.showMessageDialog(this, "Usuario creado correctamente", "Usuario creado", JOptionPane.INFORMATION_MESSAGE);
+            agregarLog("Usuario creado desde panel: " + username);
+        } catch (IllegalArgumentException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Error al crear usuario", JOptionPane.ERROR_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo crear el usuario: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private String validarDatosRegistro(String username, String email, String ip, String password, String confirmar) {
+        if (username.length() < MIN_USERNAME_LENGTH) {
+            return "El usuario debe tener al menos " + MIN_USERNAME_LENGTH + " caracteres";
+        }
+
+        if (username.length() > MAX_USERNAME_LENGTH) {
+            return "El usuario no puede superar " + MAX_USERNAME_LENGTH + " caracteres";
+        }
+
+        if (!USERNAME_PATTERN.matcher(username).matches()) {
+            return "El usuario solo puede contener letras, números, guiones y guiones bajos";
+        }
+
+        if (!EMAIL_PATTERN.matcher(email).matches()) {
+            return "Ingresa un correo electrónico válido";
+        }
+
+        if (!IP_PATTERN.matcher(ip).matches()) {
+            return "Ingresa una dirección IP válida (ej. 192.168.1.10)";
+        }
+
+        if (password.length() < MIN_PASSWORD_LENGTH) {
+            return "La contraseña debe tener al menos " + MIN_PASSWORD_LENGTH + " caracteres";
+        }
+
+        if (!password.equals(confirmar)) {
+            return "Las contraseñas no coinciden";
+        }
+
+        return null;
+    }
+
+    private void seleccionarFoto(JLabel lblFotoPreview, byte[][] fotoSeleccionada) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Seleccionar foto de perfil");
+        chooser.setFileFilter(new FileNameExtensionFilter("Imágenes", "png", "jpg", "jpeg", "gif"));
+        chooser.setAcceptAllFileFilterUsed(false);
+
+        int resultado = chooser.showOpenDialog(this);
+        if (resultado != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        File archivo = chooser.getSelectedFile();
+        try {
+            BufferedImage imagen = ImageIO.read(archivo);
+            if (imagen == null) {
+                throw new IOException("Formato de imagen no soportado");
+            }
+
+            String nombre = archivo.getName().toLowerCase();
+            String formato = (nombre.endsWith(".jpg") || nombre.endsWith(".jpeg")) ? "jpg" : "png";
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                ImageIO.write(imagen, formato, baos);
+                fotoSeleccionada[0] = baos.toByteArray();
+            }
+
+            Image escalada = imagen.getScaledInstance(90, 90, Image.SCALE_SMOOTH);
+            lblFotoPreview.setIcon(new ImageIcon(escalada));
+            lblFotoPreview.setText("");
+            lblFotoPreview.setToolTipText(archivo.getName());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo cargar la imagen: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
     
     /**
