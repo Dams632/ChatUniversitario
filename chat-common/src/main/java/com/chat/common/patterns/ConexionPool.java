@@ -5,6 +5,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Patrón Object Pool para gestionar conexiones de base de datos
@@ -17,14 +18,14 @@ public class ConexionPool {
     private final String user;
     private final String password;
     private final int maxSize;
-    private int currentSize;
+    private final AtomicInteger conexionesAbiertas;
     
     public ConexionPool(String url, String user, String password, int maxSize) {
         this.url = url;
         this.user = user;
         this.password = password;
         this.maxSize = maxSize;
-        this.currentSize = 0;
+    this.conexionesAbiertas = new AtomicInteger(0);
         this.pool = new LinkedBlockingQueue<>(maxSize);
         
         // Inicializar pool con conexiones mínimas
@@ -35,10 +36,58 @@ public class ConexionPool {
      * Inicializar pool con conexiones
      */
     private void inicializarPool(int initialSize) {
-        try {
-            for (int i = 0; i < initialSize; i++) {
-                pool.offer(crearNuevaConexion());
+        int limite = Math.min(initialSize, maxSize);
+        for (int i = 0; i < limite; i++) {
+            if (!incrementarSiHayCapacidad()) {
+                break;
             }
+            try {
+                pool.offer(crearNuevaConexion());
+            } catch (SQLException e) {
+                disminuirConteo();
+                System.err.println("Error al inicializar pool: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Incrementa el conteo de conexiones si no se supera el máximo configurado.
+     */
+    private boolean incrementarSiHayCapacidad() {
+        while (true) {
+            int actual = conexionesAbiertas.get();
+            if (actual >= maxSize) {
+                return false;
+            }
+            if (conexionesAbiertas.compareAndSet(actual, actual + 1)) {
+                return true;
+            }
+        }
+    }
+
+    /**
+     * Disminuye el conteo de conexiones abiertas asegurando que no sea negativo.
+     */
+    private void disminuirConteo() {
+        conexionesAbiertas.updateAndGet(actual -> actual > 0 ? actual - 1 : 0);
+    }
+
+    /**
+     * Verifica si la conexión es utilizable.
+     */
+    private boolean conexionValida(Connection conn) throws SQLException {
+        return conn != null && !conn.isClosed();
+    }
+
+    /**
+     * Cierra de forma silenciosa una conexión.
+     */
+    private void cerrarSilencioso(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            conn.close();
         } catch (SQLException e) {
             System.err.println("Error al inicializar pool: " + e.getMessage());
         }
@@ -49,8 +98,7 @@ public class ConexionPool {
      */
     private Connection crearNuevaConexion() throws SQLException {
         Connection conn = DriverManager.getConnection(url, user, password);
-        currentSize++;
-        System.out.println("Nueva conexión creada. Total: " + currentSize);
+        System.out.println("Nueva conexión creada. Total abiertas: " + conexionesAbiertas.get());
         return conn;
     }
     
@@ -59,28 +107,26 @@ public class ConexionPool {
      */
     public Connection obtenerConexion() throws SQLException {
         Connection conn = pool.poll();
-        
-        if (conn == null) {
-            if (currentSize < maxSize) {
-                conn = crearNuevaConexion();
-            } else {
-                try {
-                    // Esperar por una conexión disponible
-                    conn = pool.take();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new SQLException("Interrompido mientras esperaba conexión", e);
-                }
+
+        if (conn != null) {
+            if (conexionValida(conn)) {
+                return conn;
             }
+            disminuirConteo();
+            cerrarSilencioso(conn);
+            return obtenerConexion();
         }
-        
-        // Verificar si la conexión es válida
-        if (conn != null && conn.isClosed()) {
-            currentSize--;
-            conn = crearNuevaConexion();
+
+        if (!incrementarSiHayCapacidad()) {
+            throw new SQLException("No hay conexiones disponibles (límite del pool alcanzado: " + maxSize + ")");
         }
-        
-        return conn;
+
+        try {
+            return crearNuevaConexion();
+        } catch (SQLException e) {
+            disminuirConteo();
+            throw e;
+        }
     }
     
     /**
@@ -90,12 +136,18 @@ public class ConexionPool {
         if (conn != null) {
             try {
                 if (!conn.isClosed()) {
-                    pool.offer(conn);
+                    if (!pool.offer(conn)) {
+                        // Si la cola está llena descartamos la conexión
+                        cerrarSilencioso(conn);
+                        disminuirConteo();
+                    }
                 } else {
-                    currentSize--;
+                    disminuirConteo();
                 }
             } catch (SQLException e) {
                 System.err.println("Error al verificar conexión: " + e.getMessage());
+                disminuirConteo();
+                cerrarSilencioso(conn);
             }
         }
     }
@@ -114,12 +166,12 @@ public class ConexionPool {
             }
         }
         pool.clear();
-        currentSize = 0;
+        conexionesAbiertas.set(0);
         System.out.println("Pool de conexiones cerrado");
     }
     
     public int getTamanoActual() {
-        return pool.size();
+        return conexionesAbiertas.get();
     }
     
     public int getTamanoMaximo() {

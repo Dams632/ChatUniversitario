@@ -6,13 +6,10 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
-import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.LineUnavailableException;
@@ -215,26 +212,8 @@ public class AudioRecorder extends JDialog {
             e.printStackTrace();
         }
         
-        // Obtener audio grabado (PCM raw)
-        byte[] rawAudio = audioOutputStream.toByteArray();
-        
-        // Verificar que hay audio con volumen suficiente
-        if (!tieneAudioValido(rawAudio)) {
-            JOptionPane.showMessageDialog(this,
-                "⚠️ No se detectó audio válido.\n\n" +
-                "Verifica que:\n" +
-                "• El micrófono esté conectado\n" +
-                "• El volumen del micrófono esté alto\n" +
-                "• Hables cerca del micrófono",
-                "Audio no detectado",
-                JOptionPane.WARNING_MESSAGE);
-            cancelled = true;
-            dispose();
-            return;
-        }
-        
-        // Convertir PCM raw a WAV (con encabezado)
-        recordedAudio = convertirAWav(rawAudio);
+        // Guardar audio grabado
+        recordedAudio = audioOutputStream.toByteArray();
         recordingDuration = (System.currentTimeMillis() - startTime) / 1000;
         
         try {
@@ -242,8 +221,6 @@ public class AudioRecorder extends JDialog {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
-        System.out.println("✅ Audio grabado: " + recordedAudio.length + " bytes (" + recordingDuration + " segundos)");
         
         // Cerrar diálogo
         dispose();
@@ -310,70 +287,5 @@ public class AudioRecorder extends JDialog {
      */
     public static AudioFormat getAudioFormat() {
         return AUDIO_FORMAT;
-    }
-    
-    /**
-     * Verificar si el audio tiene volumen suficiente (no es solo silencio)
-     */
-    private boolean tieneAudioValido(byte[] audioData) {
-        if (audioData == null || audioData.length < 1000) {
-            return false;
-        }
-        
-        // Calcular RMS (Root Mean Square) para medir volumen
-        long sumSquares = 0;
-        int samples = audioData.length / 2; // 16-bit = 2 bytes por sample
-        
-        for (int i = 0; i < audioData.length - 1; i += 2) {
-            // Convertir 2 bytes a un sample de 16-bit (little endian)
-            int sample = (audioData[i] & 0xFF) | ((audioData[i + 1] & 0xFF) << 8);
-            
-            // Convertir a signed
-            if (sample > 32767) {
-                sample -= 65536;
-            }
-            
-            sumSquares += (long)sample * sample;
-        }
-        
-        double rms = Math.sqrt((double)sumSquares / samples);
-        double threshold = 100.0; // Umbral mínimo de volumen
-        
-        System.out.println("📊 RMS del audio: " + String.format("%.2f", rms) + " (umbral: " + threshold + ")");
-        
-        return rms > threshold;
-    }
-    
-    /**
-     * Convertir PCM raw a WAV (agregar encabezado WAV)
-     */
-    private byte[] convertirAWav(byte[] pcmData) {
-        try {
-            // Crear AudioInputStream desde PCM raw
-            ByteArrayInputStream bais = new ByteArrayInputStream(pcmData);
-            AudioInputStream audioInputStream = new AudioInputStream(
-                bais, 
-                AUDIO_FORMAT, 
-                pcmData.length / AUDIO_FORMAT.getFrameSize()
-            );
-            
-            // Convertir a WAV usando ByteArrayOutputStream
-            ByteArrayOutputStream wavOutput = new ByteArrayOutputStream();
-            AudioSystem.write(audioInputStream, AudioFileFormat.Type.WAVE, wavOutput);
-            
-            byte[] wavData = wavOutput.toByteArray();
-            System.out.println("🔄 Audio convertido: PCM " + pcmData.length + " bytes → WAV " + wavData.length + " bytes");
-            
-            audioInputStream.close();
-            wavOutput.close();
-            
-            return wavData;
-            
-        } catch (IOException e) {
-            System.err.println("❌ Error al convertir a WAV: " + e.getMessage());
-            e.printStackTrace();
-            // Si falla, devolver PCM raw
-            return pcmData;
-        }
     }
 }

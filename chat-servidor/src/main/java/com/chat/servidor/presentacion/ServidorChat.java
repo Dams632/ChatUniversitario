@@ -10,13 +10,17 @@ import java.net.Socket;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import com.chat.common.models.Canal;
+import com.chat.common.patterns.EventoChat;
+import com.chat.common.patterns.Observer;
 import com.chat.servidor.datos.ConexionDB;
 import com.chat.servidor.negocio.ServicioCanal;
 import com.chat.servidor.presentacion.gui.ServidorFrame;
@@ -25,11 +29,12 @@ import com.chat.transcripcion.ServicioTranscripcion;
 /**
  * Servidor principal del chat universitario
  */
-public class ServidorChat {
+public class ServidorChat implements Observer {
     
     // Valores por defecto (pueden ser sobrescritos por config.properties)
     private static final int PUERTO_DEFAULT = 5000;
     private static final String HOST_DEFAULT = "0.0.0.0";
+    private static final int MAX_USUARIOS_DEFAULT = 100;
     
     private static ServidorChat instancia;
     private ServerSocket serverSocket;
@@ -40,11 +45,13 @@ public class ServidorChat {
     private ServicioCanal servicioCanal;
     private int puerto;
     private String host;
+    private int maxUsuariosConectados;
     
     public ServidorChat() {
         this.clientesConectados = new ArrayList<>();
         this.puerto = PUERTO_DEFAULT;
         this.host = HOST_DEFAULT;
+        this.maxUsuariosConectados = MAX_USUARIOS_DEFAULT;
         instancia = this;
     }
     
@@ -55,7 +62,164 @@ public class ServidorChat {
         this.clientesConectados = new ArrayList<>();
         this.puerto = puerto;
         this.host = host;
+        this.maxUsuariosConectados = MAX_USUARIOS_DEFAULT;
         instancia = this;
+    }
+
+    public void setMaxUsuariosConectados(int maxUsuariosConectados) {
+        this.maxUsuariosConectados = Math.max(0, maxUsuariosConectados);
+    }
+
+    public int getMaxUsuariosConectados() {
+        return maxUsuariosConectados;
+    }
+
+    private boolean hayCapacidadParaNuevoCliente() {
+        if (maxUsuariosConectados <= 0) {
+            return true;
+        }
+        synchronized (clientesConectados) {
+            return clientesConectados.size() < maxUsuariosConectados;
+        }
+    }
+
+    private int registrarCliente(ManejadorCliente cliente) {
+        synchronized (clientesConectados) {
+            if (maxUsuariosConectados > 0 && clientesConectados.size() >= maxUsuariosConectados) {
+                return -1;
+            }
+            cliente.agregarObservador(this);
+            clientesConectados.add(cliente);
+            return clientesConectados.size();
+        }
+    }
+
+    public void removerCliente(ManejadorCliente cliente) {
+        int totalRestante = -1;
+        synchronized (clientesConectados) {
+            if (clientesConectados.remove(cliente)) {
+                cliente.removerObservador(this);
+                totalRestante = clientesConectados.size();
+            }
+        }
+
+        if (totalRestante >= 0) {
+            System.out.println("Cliente removido. Total clientes activos: " + totalRestante);
+            if (gui != null) {
+                String ocupacion = maxUsuariosConectados > 0
+                    ? totalRestante + "/" + maxUsuariosConectados
+                    : String.valueOf(totalRestante);
+                gui.agregarLog("Cliente desconectado. Total activos: " + ocupacion);
+                gui.actualizarTabla();
+            }
+
+            if (cliente.isAutenticado()) {
+                notificarActualizacionUsuarios();
+            }
+        }
+    }
+
+    private void rechazarConexion(Socket socketCliente) {
+        String ip = socketCliente.getInetAddress().getHostAddress();
+        try {
+            socketCliente.close();
+        } catch (IOException e) {
+            System.err.println("Error al rechazar conexión desde " + ip + ": " + e.getMessage());
+        }
+
+        System.out.println("Conexión rechazada desde " + ip + " (límite de " + maxUsuariosConectados + " clientes)");
+        if (gui != null) {
+            gui.agregarLog("Conexión rechazada (límite alcanzado) desde " + ip);
+        }
+    }
+
+    @Override
+    public void actualizar(EventoChat evento) {
+        if (evento == null) {
+            return;
+        }
+
+        switch (evento.getTipo()) {
+            case USUARIO_CONECTADO:
+                manejarEventoUsuarioConectado(evento);
+                break;
+            case USUARIO_DESCONECTADO:
+                manejarEventoUsuarioDesconectado(evento);
+                break;
+            case MENSAJE_ENVIADO:
+                manejarEventoMensajeEnviado(evento);
+                break;
+            case BROADCAST_MENSAJE:
+                manejarEventoBroadcast(evento);
+                break;
+            case AUDIO_RECIBIDO:
+                manejarEventoAudioPrivado(evento);
+                break;
+            case AUDIO_GRUPO_RECIBIDO:
+                manejarEventoAudioGrupo(evento);
+                break;
+            default:
+                registrarEvento("Evento recibido: " + evento.getTipo());
+        }
+    }
+
+    private void manejarEventoUsuarioConectado(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String usuario = (String) datos.getOrDefault("usuario", "Desconocido");
+        String ip = (String) datos.getOrDefault("ip", "");
+        registrarEvento("Cliente autenticado: " + usuario + (ip.isEmpty() ? "" : " desde " + ip));
+    }
+
+    private void manejarEventoUsuarioDesconectado(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String usuario = (String) datos.getOrDefault("usuario", "Desconocido");
+        String motivo = (String) datos.getOrDefault("evento", "DESCONEXION");
+        registrarEvento("Cliente desconectado: " + usuario + " (" + motivo + ")");
+    }
+
+    private void manejarEventoMensajeEnviado(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String remitente = (String) datos.getOrDefault("remitente", "?");
+        String destinatario = (String) datos.getOrDefault("destinatario", "?");
+        registrarEvento("Mensaje privado de " + remitente + " para " + destinatario);
+    }
+
+    private void manejarEventoBroadcast(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String remitente = (String) datos.getOrDefault("remitente", "?");
+        Long canalId = (Long) datos.getOrDefault("canalId", -1L);
+        registrarEvento("Mensaje grupal de " + remitente + " en canal " + canalId);
+    }
+
+    private void manejarEventoAudioPrivado(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String remitente = (String) datos.getOrDefault("remitente", "?");
+        String destinatario = (String) datos.getOrDefault("destinatario", "?");
+        registrarEvento("Audio privado de " + remitente + " para " + destinatario);
+    }
+
+    private void manejarEventoAudioGrupo(EventoChat evento) {
+        Map<String, Object> datos = extraerDatos(evento);
+        String remitente = (String) datos.getOrDefault("remitente", "?");
+        Long canalId = (Long) datos.getOrDefault("canalId", -1L);
+        registrarEvento("Audio grupal de " + remitente + " en canal " + canalId);
+    }
+
+    private Map<String, Object> extraerDatos(EventoChat evento) {
+        Object datos = evento.getDatos();
+        if (datos instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> casted = (Map<String, Object>) datos;
+            return casted;
+        }
+        return Collections.emptyMap();
+    }
+
+    private void registrarEvento(String mensaje) {
+        System.out.println(mensaje);
+        if (gui != null) {
+            gui.agregarLog(mensaje);
+        }
     }
     
     /**
@@ -200,16 +364,16 @@ public class ServidorChat {
      * Se llama cuando un usuario hace login o logout
      */
     public void notificarActualizacionUsuarios() {
+        long autenticados = 0;
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
                 if (cliente.isAutenticado()) {
                     cliente.notificarActualizacionUsuarios();
+                    autenticados++;
                 }
             }
         }
-        System.out.println("Notificación de actualización de usuarios enviada a " + 
-                           clientesConectados.stream().filter(ManejadorCliente::isAutenticado).count() + 
-                           " clientes");
+        System.out.println("Notificación de actualización de usuarios enviada a " + autenticados + " clientes");
     }
     
     /**
@@ -353,24 +517,34 @@ public class ServidorChat {
             while (ejecutando) {
                 try {
                     Socket socketCliente = serverSocket.accept();
-                    
-                    // Crear manejador para el cliente
+
+                    if (!hayCapacidadParaNuevoCliente()) {
+                        rechazarConexion(socketCliente);
+                        continue;
+                    }
+
                     ManejadorCliente manejador = new ManejadorCliente(socketCliente, conexionDB);
-                    clientesConectados.add(manejador);
-                    
-                    // Ejecutar en un nuevo thread
+                    int totalClientes = registrarCliente(manejador);
+
+                    if (totalClientes == -1) {
+                        rechazarConexion(socketCliente);
+                        continue;
+                    }
+
                     Thread threadCliente = new Thread(manejador);
                     threadCliente.start();
-                    
+
                     String ip = socketCliente.getInetAddress().getHostAddress();
-                    System.out.println("Nuevo cliente conectado desde " + ip + ". Total clientes: " + clientesConectados.size());
-                    
-                    // Actualizar GUI
+                    System.out.println("Nuevo cliente conectado desde " + ip + ". Total clientes: " + totalClientes);
+
                     if (gui != null) {
-                        gui.agregarLog("Cliente conectado desde " + ip);
+                        String ocupacion = maxUsuariosConectados > 0
+                            ? totalClientes + "/" + maxUsuariosConectados
+                            : String.valueOf(totalClientes);
+                        gui.agregarLog("Cliente conectado desde " + ip + " (" + ocupacion + ")");
                         gui.actualizarTabla();
                     }
-                    
+
                 } catch (IOException e) {
                     if (ejecutando) {
                         System.err.println("Error al aceptar cliente: " + e.getMessage());
@@ -490,6 +664,8 @@ public class ServidorChat {
         String host = HOST_DEFAULT;
         int puerto = PUERTO_DEFAULT;
         
+        int maxUsuarios = MAX_USUARIOS_DEFAULT;
+
         try {
             Properties config = new Properties();
             File configFile = new File("src/main/resources/config.properties");
@@ -504,21 +680,28 @@ public class ServidorChat {
             
             host = config.getProperty("server.host", HOST_DEFAULT);
             puerto = Integer.parseInt(config.getProperty("server.port", String.valueOf(PUERTO_DEFAULT)));
+            maxUsuarios = Integer.parseInt(config.getProperty(
+                "server.max.usuarios.conectados",
+                String.valueOf(MAX_USUARIOS_DEFAULT)
+            ));
             
             System.out.println("Configuración cargada:");
             System.out.println("  Host: " + host);
             System.out.println("  Puerto: " + puerto);
+            System.out.println("  Máximo usuarios conectados: " + (maxUsuarios <= 0 ? "Sin límite" : maxUsuarios));
             System.out.println();
             
         } catch (Exception e) {
             System.out.println("No se pudo cargar configuración, usando valores por defecto:");
             System.out.println("  Host: " + host);
             System.out.println("  Puerto: " + puerto);
+            System.out.println("  Máximo usuarios conectados: " + MAX_USUARIOS_DEFAULT);
             System.out.println();
         }
         
         // Crear instancia del servidor con la configuración
         ServidorChat servidor = new ServidorChat(host, puerto);
+        servidor.setMaxUsuariosConectados(maxUsuarios);
         
         // Configurar Look and Feel
         SwingUtilities.invokeLater(() -> {

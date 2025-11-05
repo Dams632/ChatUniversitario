@@ -5,10 +5,14 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.sql.Connection;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.chat.common.dto.RequestDTO;
 import com.chat.common.dto.ResponseDTO;
 import com.chat.common.network.ProtocoloMensaje;
+import com.chat.common.patterns.EventoChat;
+import com.chat.common.patterns.Observable;
 import com.chat.servidor.datos.LogMensajeDAO;
 import com.chat.servidor.negocio.ServicioAutenticacion;
 import com.chat.servidor.negocio.ServicioGrupo;
@@ -18,7 +22,7 @@ import com.chat.transcripcion.ServicioTranscripcion;
 /**
  * Maneja las peticiones de un cliente específico
  */
-public class ManejadorCliente implements Runnable {
+public class ManejadorCliente extends Observable implements Runnable {
     
     private final Socket socket;
     private ObjectOutputStream salida;
@@ -72,6 +76,19 @@ public class ManejadorCliente implements Runnable {
         } finally {
             desconectar();
         }
+    }
+
+    private Map<String, Object> crearDatosConexion(String evento) {
+        Map<String, Object> datos = new HashMap<>();
+        datos.put("evento", evento);
+        datos.put("ip", getDireccionIP());
+        datos.put("usuario", username);
+        datos.put("usuarioId", usuarioId);
+        return datos;
+    }
+
+    private void notificarServidor(EventoChat.TipoEvento tipo, Object datos) {
+        notificarObservadores(new EventoChat(tipo, datos));
     }
     
     /**
@@ -175,6 +192,10 @@ public class ManejadorCliente implements Runnable {
             this.usuarioId = servicioAuth.obtenerUsuarioIdPorToken(token);
             this.username = usernameParam;
             this.autenticado = true;
+
+            Map<String, Object> datos = crearDatosConexion("LOGIN_EXITOSO");
+            datos.put("token", token);
+            notificarServidor(EventoChat.TipoEvento.USUARIO_CONECTADO, datos);
             
             ResponseDTO response = ResponseDTO.exitoso("Login exitoso");
             response.addDato("token", token);
@@ -207,7 +228,10 @@ public class ManejadorCliente implements Runnable {
             
             // Realizar logout en el sistema de autenticación
             servicioAuth.logout(token);
-            
+
+            Map<String, Object> datos = crearDatosConexion("LOGOUT");
+            notificarServidor(EventoChat.TipoEvento.USUARIO_DESCONECTADO, datos);
+
             // Marcar como no autenticado
             this.autenticado = false;
             
@@ -308,6 +332,13 @@ public class ManejadorCliente implements Runnable {
                 usernameDestino, 
                 contenido
             );
+
+            Map<String, Object> datos = new HashMap<>();
+            datos.put("tipo", "MENSAJE_PRIVADO");
+            datos.put("remitente", username);
+            datos.put("destinatario", usernameDestino);
+            datos.put("contenido", contenido);
+            notificarServidor(EventoChat.TipoEvento.MENSAJE_ENVIADO, datos);
             
             // Guardar log del mensaje de texto privado
             try {
@@ -342,6 +373,13 @@ public class ManejadorCliente implements Runnable {
             
             // Enviar el mensaje a todos los miembros del canal
             ServidorChat.getInstance().enviarMensajeACanal(canalId, remitente, contenido);
+
+            Map<String, Object> datos = new HashMap<>();
+            datos.put("tipo", "MENSAJE_GRUPAL");
+            datos.put("canalId", canalId);
+            datos.put("remitente", remitente);
+            datos.put("contenido", contenido);
+            notificarServidor(EventoChat.TipoEvento.BROADCAST_MENSAJE, datos);
             
             // Guardar log del mensaje de texto en grupo
             try {
@@ -390,6 +428,14 @@ public class ManejadorCliente implements Runnable {
                 ServidorChat.getInstance().enviarAudioACanal(
                     canalId, username, contenidoAudio, formato, duracionSegundos
                 );
+
+                Map<String, Object> datos = new HashMap<>();
+                datos.put("tipo", "AUDIO_GRUPAL");
+                datos.put("canalId", canalId);
+                datos.put("remitente", username);
+                datos.put("formato", formato);
+                datos.put("duracion", duracionSegundos);
+                notificarServidor(EventoChat.TipoEvento.AUDIO_GRUPO_RECIBIDO, datos);
             } else {
                 // Enviar audio privado
                 if (usernameDestino == null || usernameDestino.isEmpty()) {
@@ -399,6 +445,14 @@ public class ManejadorCliente implements Runnable {
                 ServidorChat.getInstance().enviarAudioAUsuario(
                     username, usernameDestino, contenidoAudio, formato, duracionSegundos
                 );
+
+                Map<String, Object> datos = new HashMap<>();
+                datos.put("tipo", "AUDIO_PRIVADO");
+                datos.put("remitente", username);
+                datos.put("destinatario", usernameDestino);
+                datos.put("formato", formato);
+                datos.put("duracion", duracionSegundos);
+                notificarServidor(EventoChat.TipoEvento.AUDIO_RECIBIDO, datos);
             }
             
             // Transcribir y loggear el audio en segundo plano
@@ -730,6 +784,9 @@ public class ManejadorCliente implements Runnable {
                     
                     // Notificar a todos los clientes que la lista de usuarios ha cambiado
                     ServidorChat.getInstance().notificarActualizacionUsuarios();
+
+                    Map<String, Object> datos = crearDatosConexion("DESCONEXION_FORZADA");
+                    notificarServidor(EventoChat.TipoEvento.USUARIO_DESCONECTADO, datos);
                 } catch (Exception e) {
                     System.err.println("Error al actualizar estado en línea: " + e.getMessage());
                 }
@@ -738,6 +795,11 @@ public class ManejadorCliente implements Runnable {
             if (entrada != null) entrada.close();
             if (salida != null) salida.close();
             if (socket != null && !socket.isClosed()) socket.close();
+
+            ServidorChat servidor = ServidorChat.getInstance();
+            if (servidor != null) {
+                servidor.removerCliente(this);
+            }
             System.out.println("Cliente desconectado: " + (username != null ? username : socket.getInetAddress()));
         } catch (IOException e) {
             System.err.println("Error al desconectar: " + e.getMessage());
