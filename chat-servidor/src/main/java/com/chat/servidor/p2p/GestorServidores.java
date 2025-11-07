@@ -156,6 +156,20 @@ public class GestorServidores {
         }
     }
 
+    public void enviarMensajeCanal(Long canalId, String remitente, String contenido) {
+        if (canalId == null || remitente == null || contenido == null) {
+            return;
+        }
+
+        Map<String, Object> datos = new HashMap<>();
+        datos.put("canalId", canalId);
+        datos.put("remitente", remitente);
+        datos.put("contenido", contenido);
+        datos.put("servidorOrigen", tablaARP.getServidorLocalId());
+
+        broadcast(new MensajeP2P(MensajeP2P.Tipo.MENSAJE_CANAL, datos));
+    }
+
     void manejarMensaje(ManejadorServidor origen, MensajeP2P mensaje) {
         switch (mensaje.getTipo()) {
             case HELLO:
@@ -178,6 +192,9 @@ public class GestorServidores {
                 break;
             case INVITACION_GRUPO:
                 procesarInvitacionGrupo(origen, mensaje);
+                break;
+            case MENSAJE_CANAL:
+                procesarMensajeCanal(origen, mensaje);
                 break;
             case BROADCAST_USUARIOS:
                 procesarBroadcastUsuarios(origen, mensaje);
@@ -288,6 +305,27 @@ public class GestorServidores {
         } else {
             System.out.println("Invitación registrada y notificación entregada a " + usernameInvitado +
                 " para el canal " + nombreCanal);
+        }
+    }
+
+    private void procesarMensajeCanal(ManejadorServidor origen, MensajeP2P mensaje) {
+        Long canalId = mensaje.getLong("canalId");
+        String remitente = mensaje.getString("remitente");
+        String contenido = mensaje.getString("contenido");
+        String servidorOrigen = mensaje.getString("servidorOrigen");
+
+        if (canalId == null || remitente == null || contenido == null) {
+            return;
+        }
+
+        if (tablaARP.getServidorLocalId().equals(servidorOrigen)) {
+            return;
+        }
+
+        int entregados = servidorChat.entregarMensajeCanalLocal(canalId, remitente, contenido);
+        if (entregados > 0) {
+            System.out.println("Mensaje grupal P2P entregado a " + entregados + " usuarios locales en canal "
+                + canalId + " proveniente de " + servidorOrigen);
         }
     }
 
@@ -565,6 +603,7 @@ public class GestorServidores {
             MENSAJE_PRIVADO,
             AUDIO_PRIVADO,
             INVITACION_GRUPO,
+            MENSAJE_CANAL,
             BROADCAST_USUARIOS
         }
 

@@ -507,23 +507,28 @@ public class ServidorChat implements Observer {
      * Enviar mensaje a todos los miembros de un canal/grupo
      */
     public void enviarMensajeACanal(Long canalId, String remitenteUsername, String contenido) {
+        entregarMensajeCanalLocal(canalId, remitenteUsername, contenido);
+
+        if (tablaARPServidores != null && gestorServidores != null) {
+            gestorServidores.enviarMensajeCanal(canalId, remitenteUsername, contenido);
+        }
+    }
+
+    public int entregarMensajeCanalLocal(Long canalId, String remitenteUsername, String contenido) {
         try {
-            // Obtener el canal a través del servicio (respeta arquitectura 3-layer)
             Canal canal = servicioCanal.obtenerCanal(canalId).orElse(null);
-            
+
             if (canal == null) {
                 System.err.println("Canal no encontrado: " + canalId);
-                return;
+                return 0;
             }
-            
+
             List<Long> miembrosIds = canal.getMiembrosIds();
             int mensajesEnviados = 0;
-            
-            // Enviar el mensaje a cada miembro conectado
+
             synchronized (clientesConectados) {
                 for (ManejadorCliente cliente : clientesConectados) {
                     if (cliente.isAutenticado() && cliente.getUsuarioId() != null) {
-                        // Verificar si este cliente es miembro del canal
                         if (miembrosIds.contains(cliente.getUsuarioId())) {
                             cliente.recibirMensajeGrupo(canalId, remitenteUsername, contenido);
                             mensajesEnviados++;
@@ -531,14 +536,18 @@ public class ServidorChat implements Observer {
                     }
                 }
             }
-            
-            System.out.println("Mensaje grupal enviado por " + remitenteUsername + 
-                             " al canal " + canal.getNombre() + 
-                             " (" + mensajesEnviados + " miembros en línea)");
-            
+
+            if (mensajesEnviados > 0) {
+                System.out.println("Mensaje grupal entregado por " + remitenteUsername +
+                    " al canal " + canal.getNombre() + " (" + mensajesEnviados + " miembros locales)");
+            }
+
+            return mensajesEnviados;
+
         } catch (SQLException e) {
-            System.err.println("Error al enviar mensaje al canal: " + e.getMessage());
+            System.err.println("Error al entregar mensaje al canal: " + e.getMessage());
             e.printStackTrace();
+            return 0;
         }
     }
     

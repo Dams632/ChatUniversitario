@@ -155,8 +155,8 @@ public class CanalDAO {
     }
 
     /**
-     * Registrar o actualizar un canal que proviene de otro servidor.
-     * No modifica la membresía local, solo garantiza que exista el registro.
+     * Registrar o actualizar un canal proveniente de otra instancia P2P.
+     * Si el canal ya existe, solo actualiza su metadata principal.
      */
     public void upsertCanalRemoto(Canal canal) throws SQLException {
         String sql = "INSERT INTO canales (id, nombre, descripcion, foto, creador_id, es_privado, fecha_creacion, activo) "
@@ -180,7 +180,7 @@ public class CanalDAO {
             stmt.executeUpdate();
         }
     }
-    
+
     /**
      * Verificar si un usuario es miembro de un canal
      */

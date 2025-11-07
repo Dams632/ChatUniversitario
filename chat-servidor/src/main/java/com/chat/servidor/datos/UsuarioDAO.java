@@ -116,7 +116,10 @@ public class UsuarioDAO {
             stmt.setNull(4, Types.BLOB);
             stmt.setBoolean(5, false);
             stmt.setTimestamp(6, Timestamp.valueOf(LocalDateTime.now()));
-            stmt.executeUpdate();
+            int filas = stmt.executeUpdate();
+            if (filas > 0) {
+                System.out.println("Usuario remoto placeholder creado: " + username);
+            }
         }
 
         return buscarPorUsername(username);

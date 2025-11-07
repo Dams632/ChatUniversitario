@@ -151,19 +151,17 @@ public class ServicioGrupo {
 
             if (invitadorOpt.isEmpty() && usernameInvitador != null && !usernameInvitador.isBlank()) {
                 invitadorOpt = usuarioDAO.asegurarUsuarioRemoto(usernameInvitador);
+                if (invitadorOpt.isPresent()) {
+                    System.out.println("Usuario remoto " + usernameInvitador + " registrado localmente para invitación.");
+                }
             }
 
-            Long invitadorId = null;
-            if (invitadorOpt.isPresent()) {
-                invitadorId = invitadorOpt.get().getId();
-            }
-
-            Long creadorCanalId = invitadorId != null ? invitadorId : invitadoId;
+            Long invitadorId = invitadorOpt.map(Usuario::getId).orElse(null);
 
             if (invitadorId == null) {
-                invitadorId = creadorCanalId;
+                invitadorId = invitadoId;
                 System.out.println("Invitador remoto (p2p): " + usernameInvitador +
-                    " no pudo registrarse localmente; se usará el usuario invitado como referente");
+                    " no existe localmente; se usará el usuario invitado como referente");
             }
 
             if (canalDAO.buscarPorId(canalId).isEmpty()) {
@@ -172,13 +170,18 @@ public class ServicioGrupo {
                 canalReplica.setNombre(nombreCanal != null ? nombreCanal : "Canal remoto " + canalId);
                 canalReplica.setDescripcion(descripcionCanal);
                 canalReplica.setFoto(fotoCanal);
-                canalReplica.setCreadorId(creadorCanalId);
+                canalReplica.setCreadorId(invitadorId);
                 canalReplica.setEsPrivado(false);
                 canalReplica.setFechaCreacion(LocalDateTime.now());
                 canalReplica.setActivo(true);
-                canalDAO.upsertCanalRemoto(canalReplica);
-                System.out.println("Canal remoto sincronizado localmente: " + canalReplica.getNombre() +
-                    " (" + canalId + ")");
+
+                try {
+                    canalDAO.upsertCanalRemoto(canalReplica);
+                    System.out.println("Canal remoto sincronizado localmente: " + canalReplica.getNombre() +
+                        " (" + canalId + ")");
+                } catch (SQLException canalEx) {
+                    System.err.println("No se pudo sincronizar canal remoto " + canalId + ": " + canalEx.getMessage());
+                }
             }
 
             if (invitacionDAO.existeInvitacionPendiente(canalId, invitadoId)) {
@@ -192,11 +195,15 @@ public class ServicioGrupo {
             invitacion.setUsernameInvitado(usernameInvitado);
             invitacion.setUsernameInvitador(usernameInvitador);
 
+            System.out.println("Registrando invitación remota: canal=" + canalId + ", invitado=" + invitadoId +
+                ", invitador=" + invitadorId + ", usernameInvitador=" + usernameInvitador);
+
             invitacionDAO.crear(invitacion);
             return true;
 
         } catch (SQLException e) {
             System.err.println("Error al registrar invitación remota: " + e.getMessage());
+            e.printStackTrace();
             return false;
         }
     }
