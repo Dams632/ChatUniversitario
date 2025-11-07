@@ -581,13 +581,15 @@ public class ManejadorCliente extends Observable implements Runnable {
             if (resultado.isExito()) {
                 // Notificar a los usuarios invitados
                 Long canalId = (Long) resultado.getDato("canalId");
+                String descripcionCanal = (String) resultado.getDato("descripcion");
+                byte[] fotoCanal = (byte[]) resultado.getDato("foto");
                 for (String usernameInvitado : usuariosInvitados) {
                     ServidorChat.getInstance().enviarNotificacionInvitacion(
                         username,
                         usernameInvitado,
                         nombre,
-                        descripcion,
-                        foto,
+                        descripcionCanal,
+                        fotoCanal,
                         canalId
                     );
                 }

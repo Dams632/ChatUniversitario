@@ -256,7 +256,6 @@ public class GestorServidores {
         String descripcionCanal = mensaje.getString("descripcionCanal");
         byte[] fotoCanal = mensaje.getBytes("fotoCanal");
         Long canalId = mensaje.getLong("canalId");
-
         servidorChat.registrarInvitacionRemota(
             canalId,
             nombreCanal,

@@ -116,6 +116,8 @@ public class ServicioGrupo {
             response.addDato("nombre", canalCreado.getNombre());
             response.addDato("usuariosLocales", invitadosLocales);
             response.addDato("usuariosPendientes", invitadosNoLocales);
+            response.addDato("descripcion", descripcion);
+            response.addDato("foto", foto);
             return response;
             
         } catch (SQLException e) {
@@ -146,12 +148,7 @@ public class ServicioGrupo {
                 ? usuarioDAO.buscarPorUsername(usernameInvitador)
                 : Optional.empty();
 
-            if (invitadorOpt.isEmpty()) {
-                System.err.println("No se pudo registrar invitación remota: usuario invitador no existe " + usernameInvitador);
-                return false;
-            }
-
-            Long invitadorId = invitadorOpt.get().getId();
+            Long invitadorId = invitadorOpt.map(Usuario::getId).orElse(null);
 
             if (invitacionDAO.existeInvitacionPendiente(canalId, invitadoId)) {
                 return false;
