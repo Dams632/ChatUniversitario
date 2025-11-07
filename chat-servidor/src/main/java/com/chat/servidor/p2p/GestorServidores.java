@@ -234,6 +234,7 @@ public class GestorServidores {
         datos.put("descripcionCanal", descripcionCanal);
         datos.put("fotoCanal", fotoCanal);
         datos.put("canalId", canalId);
+        datos.put("servidorOrigen", tablaARP.getServidorLocalId());
 
         try {
             manejador.enviarMensaje(new MensajeP2P(MensajeP2P.Tipo.INVITACION_GRUPO, datos));
@@ -255,6 +256,15 @@ public class GestorServidores {
         String descripcionCanal = mensaje.getString("descripcionCanal");
         byte[] fotoCanal = mensaje.getBytes("fotoCanal");
         Long canalId = mensaje.getLong("canalId");
+
+        servidorChat.registrarInvitacionRemota(
+            canalId,
+            nombreCanal,
+            descripcionCanal,
+            fotoCanal,
+            usernameInvitado,
+            usernameInvitador
+        );
 
         boolean entregado = servidorChat.entregarInvitacionLocal(
             usernameInvitador,

@@ -31,6 +31,7 @@ import com.chat.common.patterns.Observer;
 import com.chat.servidor.datos.ConexionDB;
 import com.chat.servidor.negocio.ServicioAutenticacion;
 import com.chat.servidor.negocio.ServicioCanal;
+import com.chat.servidor.negocio.ServicioGrupo;
 import com.chat.servidor.p2p.GestorServidores;
 import com.chat.servidor.p2p.TablaARPServidores;
 import com.chat.servidor.presentacion.gui.ServidorFrame;
@@ -54,6 +55,7 @@ public class ServidorChat implements Observer {
     private ServidorFrame gui;
     private ServicioCanal servicioCanal;
     private ServicioAutenticacion servicioAutenticacion;
+    private ServicioGrupo servicioGrupo;
     private int puerto;
     private String host;
     private int maxUsuariosConectados;
@@ -654,6 +656,30 @@ public class ServidorChat implements Observer {
             gui.actualizarTabla();
         }
     }
+
+    public boolean registrarInvitacionRemota(Long canalId, String nombreCanal, String descripcionCanal,
+                                             byte[] fotoCanal, String usernameInvitado, String usernameInvitador) {
+        if (servicioGrupo == null) {
+            System.err.println("Servicio de grupos no inicializado; no se puede registrar invitación remota");
+            return false;
+        }
+
+        boolean creada = servicioGrupo.registrarInvitacionRemota(
+            canalId,
+            nombreCanal,
+            descripcionCanal,
+            fotoCanal,
+            usernameInvitado,
+            usernameInvitador
+        );
+
+        if (creada) {
+            System.out.println("Invitación remota sincronizada para " + usernameInvitado +
+                " en canal " + nombreCanal + " (" + canalId + ")");
+        }
+
+        return creada;
+    }
     
     /**
      * Enviar notificación de invitación a un usuario
@@ -786,6 +812,7 @@ public class ServidorChat implements Observer {
             // Inicializar servicios
             this.servicioCanal = new ServicioCanal(conexionDB);
             this.servicioAutenticacion = new ServicioAutenticacion(conexionDB);
+            this.servicioGrupo = new ServicioGrupo(conexionDB);
             
             // Inicializar servicio de transcripción de audio
             inicializarServicioTranscripcion();
