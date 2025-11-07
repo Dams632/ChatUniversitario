@@ -61,6 +61,36 @@ public class ServidorChat implements Observer {
     private int puertoP2P;
     private String identificadorServidor;
     private Set<InetSocketAddress> vecinosP2P;
+
+    public static class ConexionRemotaInfo {
+        private final String servidorId;
+        private final String host;
+        private final int puerto;
+        private final long conectadoDesde;
+
+        public ConexionRemotaInfo(String servidorId, String host, int puerto, long conectadoDesde) {
+            this.servidorId = servidorId;
+            this.host = host;
+            this.puerto = puerto;
+            this.conectadoDesde = conectadoDesde;
+        }
+
+        public String getServidorId() {
+            return servidorId;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public int getPuerto() {
+            return puerto;
+        }
+
+        public long getConectadoDesde() {
+            return conectadoDesde;
+        }
+    }
     
     public ServidorChat() {
         this.clientesConectados = new ArrayList<>();
@@ -110,8 +140,61 @@ public class ServidorChat implements Observer {
         }
     }
 
+    public boolean conectarServidorP2P(String hostDestino, int puertoDestino) {
+        if (gestorServidores == null) {
+            System.err.println("Gestor de servidores no inicializado; conexión P2P manual no disponible");
+            return false;
+        }
+
+        if (hostDestino == null || hostDestino.isBlank()) {
+            System.err.println("Host de destino inválido para conexión P2P manual");
+            return false;
+        }
+
+        if (puertoDestino <= 0 || puertoDestino > 65535) {
+            System.err.println("Puerto de destino inválido para conexión P2P manual: " + puertoDestino);
+            return false;
+        }
+
+        InetSocketAddress destino = new InetSocketAddress(hostDestino.trim(), puertoDestino);
+
+        boolean conectado = gestorServidores.conectarManual(destino);
+        if (conectado) {
+            vecinosP2P.add(destino);
+            registrarEvento("Enlace P2P manual iniciado con " + destino);
+        }
+        return conectado;
+    }
+
     public int getMaxUsuariosConectados() {
         return maxUsuariosConectados;
+    }
+
+    public String getHost() {
+        return host;
+    }
+
+    public int getPuerto() {
+        return puerto;
+    }
+
+    public int getPuertoP2P() {
+        return puertoP2P;
+    }
+
+    public List<ConexionRemotaInfo> obtenerConexionesP2PActivas() {
+        if (gestorServidores == null) {
+            return Collections.emptyList();
+        }
+        return gestorServidores.obtenerConexionesActivas().stream()
+            .map(conexion -> {
+                InetSocketAddress direccion = conexion.getDireccionRemota();
+                String hostRemoto = direccion != null ? direccion.getHostString() : "desconocido";
+                int puertoRemoto = direccion != null ? direccion.getPort() : -1;
+                String servidorIdRemoto = conexion.getServidorId() != null ? conexion.getServidorId() : hostRemoto + ":" + puertoRemoto;
+                return new ConexionRemotaInfo(servidorIdRemoto, hostRemoto, puertoRemoto, conexion.getConectadoDesde());
+            })
+            .collect(Collectors.toList());
     }
 
     public List<String> obtenerUsuariosLocalesAutenticados() {
@@ -490,6 +573,15 @@ public class ServidorChat implements Observer {
             }
         }
         System.out.println("Notificación de actualización de usuarios enviada a " + autenticados + " clientes");
+        if (gui != null) {
+            SwingUtilities.invokeLater(this::actualizarPanelServidor);
+        }
+    }
+
+    private void actualizarPanelServidor() {
+        if (gui != null) {
+            gui.actualizarTabla();
+        }
     }
     
     /**

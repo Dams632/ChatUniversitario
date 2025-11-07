@@ -3,7 +3,9 @@ package com.chat.servidor.p2p;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -15,6 +17,7 @@ class ManejadorServidor implements Runnable {
     private final Socket socket;
     private final boolean iniciador;
     private final AtomicBoolean activo;
+    private final long instanteConexion;
 
     private ObjectOutputStream salida;
     private ObjectInputStream entrada;
@@ -25,6 +28,7 @@ class ManejadorServidor implements Runnable {
         this.socket = socket;
         this.iniciador = iniciador;
         this.activo = new AtomicBoolean(true);
+        this.instanteConexion = System.currentTimeMillis();
     }
 
     @Override
@@ -89,5 +93,14 @@ class ManejadorServidor implements Runnable {
 
     void setServidorRemotoId(String servidorRemotoId) {
         this.servidorRemotoId = servidorRemotoId;
+    }
+
+    InetSocketAddress getDireccionRemota() {
+        SocketAddress remoto = socket.getRemoteSocketAddress();
+        return remoto instanceof InetSocketAddress ? (InetSocketAddress) remoto : null;
+    }
+
+    long getInstanteConexion() {
+        return instanteConexion;
     }
 }

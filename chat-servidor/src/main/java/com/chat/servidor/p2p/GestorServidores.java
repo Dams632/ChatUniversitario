@@ -342,6 +342,36 @@ public class GestorServidores {
         }
     }
 
+    public boolean conectarManual(InetSocketAddress destino) {
+        if (destino == null) {
+            return false;
+        }
+
+        if (!ejecutando) {
+            System.err.println("Gestor P2P no está activo, no se puede conectar a " + destino);
+            return false;
+        }
+
+        if (esDireccionLocal(destino)) {
+            System.err.println("Se ignoró la conexión manual hacia la propia dirección " + destino);
+            return false;
+        }
+
+        vecinosConfigurados.add(destino);
+
+        try {
+            Socket socket = new Socket();
+            socket.connect(destino, 4000);
+            crearManejador(socket, true);
+            System.out.println("Conexión P2P manual iniciada hacia " + destino);
+            return true;
+        } catch (IOException e) {
+            vecinosConfigurados.remove(destino);
+            System.err.println("No se pudo establecer conexión manual con " + destino + ": " + e.getMessage());
+            return false;
+        }
+    }
+
     private boolean esDireccionLocal(InetSocketAddress vecino) {
         return vecino.getPort() == puertoLocal;
     }
@@ -360,6 +390,42 @@ public class GestorServidores {
             } catch (IOException e) {
                 manejarDesconexion(manejador);
             }
+        }
+    }
+
+    public List<ConexionRemota> obtenerConexionesActivas() {
+        List<ConexionRemota> activas = new ArrayList<>();
+        for (Map.Entry<String, ManejadorServidor> entry : conexionesActivas.entrySet()) {
+            ManejadorServidor manejador = entry.getValue();
+            if (manejador == null) {
+                continue;
+            }
+            activas.add(new ConexionRemota(entry.getKey(), manejador.getDireccionRemota(), manejador.getInstanteConexion()));
+        }
+        return activas;
+    }
+
+    public static class ConexionRemota {
+        private final String servidorId;
+        private final InetSocketAddress direccionRemota;
+        private final long conectadoDesde;
+
+        ConexionRemota(String servidorId, InetSocketAddress direccionRemota, long conectadoDesde) {
+            this.servidorId = servidorId;
+            this.direccionRemota = direccionRemota;
+            this.conectadoDesde = conectadoDesde;
+        }
+
+        public String getServidorId() {
+            return servidorId;
+        }
+
+        public InetSocketAddress getDireccionRemota() {
+            return direccionRemota;
+        }
+
+        public long getConectadoDesde() {
+            return conectadoDesde;
         }
     }
 
@@ -399,7 +465,6 @@ public class GestorServidores {
             return valor instanceof String ? (String) valor : null;
         }
 
-        @SuppressWarnings("unchecked")
         List<String> getStringList(String clave) {
             Object valor = payload.get(clave);
             if (valor instanceof List<?>) {
