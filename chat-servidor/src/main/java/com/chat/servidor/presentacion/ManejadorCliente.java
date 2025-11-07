@@ -5,14 +5,19 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.sql.Connection;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.chat.common.dto.RequestDTO;
 import com.chat.common.dto.ResponseDTO;
 import com.chat.common.network.ProtocoloMensaje;
 import com.chat.common.patterns.EventoChat;
 import com.chat.common.patterns.Observable;
+import com.chat.common.models.Usuario;
 import com.chat.servidor.datos.LogMensajeDAO;
 import com.chat.servidor.negocio.ServicioAutenticacion;
 import com.chat.servidor.negocio.ServicioGrupo;
@@ -285,7 +290,39 @@ public class ManejadorCliente extends Observable implements Runnable {
      */
     private ResponseDTO manejarObtenerTodosUsuarios() {
         try {
-            var usuarios = servicioUsuario.obtenerTodosLosUsuarios();
+            List<Usuario> usuarios = new ArrayList<>(servicioUsuario.obtenerTodosLosUsuarios());
+            Set<String> usernamesRegistrados = new HashSet<>();
+            for (Usuario usuario : usuarios) {
+                if (usuario.getUsername() != null) {
+                    usernamesRegistrados.add(usuario.getUsername());
+                }
+            }
+
+            // Añade usuarios remotos conocidos por las conexiones P2P activas.
+            ServidorChat servidor = ServidorChat.getInstance();
+            if (servidor != null) {
+                for (ServidorChat.UsuarioRemotoInfo remoto : servidor.obtenerUsuariosRemotos()) {
+                    String usernameRemoto = remoto.getUsername();
+                    if (usernameRemoto == null || usernameRemoto.isBlank() || usernamesRegistrados.contains(usernameRemoto)) {
+                        continue;
+                    }
+
+                    Usuario usuarioRemoto = new Usuario();
+                    usuarioRemoto.setUsername(usernameRemoto);
+                    usuarioRemoto.setEnLinea(true);
+
+                    String hostRemoto = remoto.getHost();
+                    int puertoRemoto = remoto.getPuerto();
+                    if (hostRemoto != null && !hostRemoto.isBlank()) {
+                        usuarioRemoto.setDireccionIP(
+                            puertoRemoto > 0 ? hostRemoto + ":" + puertoRemoto : hostRemoto
+                        );
+                    }
+
+                    usuarios.add(usuarioRemoto);
+                    usernamesRegistrados.add(usernameRemoto);
+                }
+            }
             
             ResponseDTO response = ResponseDTO.exitoso("Usuarios obtenidos");
             response.addDato("usuarios", usuarios);
@@ -320,7 +357,6 @@ public class ManejadorCliente extends Observable implements Runnable {
         try {
             String usernameDestino = (String) request.getDato("usernameDestino");
             String contenido = (String) request.getDato("contenido");
-            String tipoMensaje = (String) request.getDato("tipoMensaje");
             
             if (!autenticado) {
                 return ResponseDTO.error("Usuario no autenticado");
