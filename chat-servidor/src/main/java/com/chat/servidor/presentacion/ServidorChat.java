@@ -3,6 +3,7 @@ package com.chat.servidor.presentacion;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -11,9 +12,13 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -25,6 +30,8 @@ import com.chat.common.patterns.Observer;
 import com.chat.servidor.datos.ConexionDB;
 import com.chat.servidor.negocio.ServicioAutenticacion;
 import com.chat.servidor.negocio.ServicioCanal;
+import com.chat.servidor.p2p.GestorServidores;
+import com.chat.servidor.p2p.TablaARPServidores;
 import com.chat.servidor.presentacion.gui.ServidorFrame;
 import com.chat.transcripcion.ServicioTranscripcion;
 
@@ -49,12 +56,22 @@ public class ServidorChat implements Observer {
     private int puerto;
     private String host;
     private int maxUsuariosConectados;
+    private TablaARPServidores tablaARPServidores;
+    private GestorServidores gestorServidores;
+    private int puertoP2P;
+    private String identificadorServidor;
+    private Set<InetSocketAddress> vecinosP2P;
     
     public ServidorChat() {
         this.clientesConectados = new ArrayList<>();
         this.puerto = PUERTO_DEFAULT;
         this.host = HOST_DEFAULT;
         this.maxUsuariosConectados = MAX_USUARIOS_DEFAULT;
+        this.vecinosP2P = new HashSet<>();
+        this.identificadorServidor = host + ":" + puerto;
+        this.puertoP2P = puerto + 100;
+        this.tablaARPServidores = new TablaARPServidores(this.identificadorServidor);
+        this.gestorServidores = new GestorServidores(this, this.tablaARPServidores, this.identificadorServidor, this.puertoP2P);
         instancia = this;
     }
     
@@ -66,6 +83,11 @@ public class ServidorChat implements Observer {
         this.puerto = puerto;
         this.host = host;
         this.maxUsuariosConectados = MAX_USUARIOS_DEFAULT;
+        this.vecinosP2P = new HashSet<>();
+        this.identificadorServidor = host + ":" + puerto;
+        this.puertoP2P = puerto + 100;
+        this.tablaARPServidores = new TablaARPServidores(this.identificadorServidor);
+        this.gestorServidores = new GestorServidores(this, this.tablaARPServidores, this.identificadorServidor, this.puertoP2P);
         instancia = this;
     }
 
@@ -73,8 +95,33 @@ public class ServidorChat implements Observer {
         this.maxUsuariosConectados = Math.max(0, maxUsuariosConectados);
     }
 
+    public void configurarRedServidores(String identificadorServidor, int puertoP2P, Set<InetSocketAddress> vecinos) {
+        if (identificadorServidor == null || identificadorServidor.isBlank()) {
+            this.identificadorServidor = this.host + ":" + this.puerto;
+        } else {
+            this.identificadorServidor = identificadorServidor;
+        }
+        this.puertoP2P = puertoP2P > 0 ? puertoP2P : this.puerto + 100;
+        this.vecinosP2P = vecinos != null ? new HashSet<>(vecinos) : new HashSet<>();
+        this.tablaARPServidores = new TablaARPServidores(this.identificadorServidor);
+        this.gestorServidores = new GestorServidores(this, this.tablaARPServidores, this.identificadorServidor, this.puertoP2P);
+        for (String usuario : obtenerUsuariosLocalesAutenticados()) {
+            this.tablaARPServidores.registrarUsuarioLocal(usuario);
+        }
+    }
+
     public int getMaxUsuariosConectados() {
         return maxUsuariosConectados;
+    }
+
+    public List<String> obtenerUsuariosLocalesAutenticados() {
+        synchronized (clientesConectados) {
+            return clientesConectados.stream()
+                .filter(ManejadorCliente::isAutenticado)
+                .map(ManejadorCliente::getUsername)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        }
     }
 
     private boolean hayCapacidadParaNuevoCliente() {
@@ -117,6 +164,7 @@ public class ServidorChat implements Observer {
             }
 
             if (cliente.isAutenticado()) {
+                registrarDesconexionLocal(cliente.getUsername());
                 notificarActualizacionUsuarios();
             }
         }
@@ -170,6 +218,7 @@ public class ServidorChat implements Observer {
         Map<String, Object> datos = extraerDatos(evento);
         String usuario = (String) datos.getOrDefault("usuario", "Desconocido");
         String ip = (String) datos.getOrDefault("ip", "");
+        registrarConexionLocal(usuario);
         registrarEvento("Cliente autenticado: " + usuario + (ip.isEmpty() ? "" : " desde " + ip));
     }
 
@@ -177,6 +226,7 @@ public class ServidorChat implements Observer {
         Map<String, Object> datos = extraerDatos(evento);
         String usuario = (String) datos.getOrDefault("usuario", "Desconocido");
         String motivo = (String) datos.getOrDefault("evento", "DESCONEXION");
+        registrarDesconexionLocal(usuario);
         registrarEvento("Cliente desconectado: " + usuario + " (" + motivo + ")");
     }
 
@@ -224,6 +274,30 @@ public class ServidorChat implements Observer {
             gui.agregarLog(mensaje);
         }
     }
+
+    private void registrarConexionLocal(String username) {
+        if (username == null || username.isBlank()) {
+            return;
+        }
+        if (tablaARPServidores != null) {
+            tablaARPServidores.registrarUsuarioLocal(username);
+        }
+        if (gestorServidores != null) {
+            gestorServidores.difundirUsuarioConectado(username);
+        }
+    }
+
+    private void registrarDesconexionLocal(String username) {
+        if (username == null || username.isBlank()) {
+            return;
+        }
+        if (tablaARPServidores != null && tablaARPServidores.esUsuarioLocal(username)) {
+            tablaARPServidores.eliminarUsuario(username);
+        }
+        if (gestorServidores != null) {
+            gestorServidores.difundirUsuarioDesconectado(username);
+        }
+    }
     
     /**
      * Obtener instancia del servidor (singleton)
@@ -236,6 +310,23 @@ public class ServidorChat implements Observer {
      * Enviar mensaje de un usuario a otro
      */
     public void enviarMensajeAUsuario(String remitenteUsername, String destinatarioUsername, String contenido) {
+        if (entregarMensajeLocal(remitenteUsername, destinatarioUsername, contenido)) {
+            return;
+        }
+
+        if (tablaARPServidores != null && gestorServidores != null) {
+            String servidorDestino = tablaARPServidores.obtenerServidorDe(destinatarioUsername);
+            if (servidorDestino != null && !tablaARPServidores.getServidorLocalId().equals(servidorDestino)) {
+                if (gestorServidores.reenviarMensajePrivado(remitenteUsername, destinatarioUsername, contenido)) {
+                    return;
+                }
+            }
+        }
+
+        System.err.println("Usuario destinatario no encontrado: " + destinatarioUsername);
+    }
+
+    public boolean entregarMensajeLocal(String remitenteUsername, String destinatarioUsername, String contenido) {
         ManejadorCliente destinatario = null;
         
         // Buscar el manejador del destinatario
@@ -251,9 +342,9 @@ public class ServidorChat implements Observer {
         if (destinatario != null) {
             destinatario.recibirMensaje(remitenteUsername, contenido);
             System.out.println("Mensaje enviado de " + remitenteUsername + " a " + destinatarioUsername);
-        } else {
-            System.err.println("Usuario destinatario no encontrado: " + destinatarioUsername);
+            return true;
         }
+        return false;
     }
     
     /**
@@ -300,9 +391,31 @@ public class ServidorChat implements Observer {
      */
     public void enviarAudioAUsuario(String remitenteUsername, String destinatarioUsername, 
                                     byte[] contenidoAudio, String formato, Long duracionSegundos) {
+        if (entregarAudioLocal(remitenteUsername, destinatarioUsername, contenidoAudio, formato, duracionSegundos)) {
+            return;
+        }
+
+        if (tablaARPServidores != null && gestorServidores != null) {
+            String servidorDestino = tablaARPServidores.obtenerServidorDe(destinatarioUsername);
+            if (servidorDestino != null && !tablaARPServidores.getServidorLocalId().equals(servidorDestino)) {
+                if (gestorServidores.reenviarAudioPrivado(remitenteUsername, destinatarioUsername,
+                        contenidoAudio, formato, duracionSegundos)) {
+                    return;
+                }
+            }
+        }
+
+        System.err.println("Usuario destinatario no encontrado para audio: " + destinatarioUsername);
+    }
+
+    public boolean entregarAudioLocal(String remitenteUsername, String destinatarioUsername,
+                                      byte[] contenidoAudio, String formato, Long duracionSegundos) {
+        if (contenidoAudio == null || contenidoAudio.length == 0) {
+            return false;
+        }
+
         ManejadorCliente destinatario = null;
-        
-        // Buscar el manejador del destinatario
+
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
                 if (cliente.isAutenticado() && destinatarioUsername.equals(cliente.getUsername())) {
@@ -311,14 +424,14 @@ public class ServidorChat implements Observer {
                 }
             }
         }
-        
+
         if (destinatario != null) {
             destinatario.recibirAudio(remitenteUsername, contenidoAudio, formato, duracionSegundos, null);
-            System.out.println("Audio enviado de " + remitenteUsername + " a " + destinatarioUsername + 
-                             " (formato: " + formato + ", duración: " + duracionSegundos + "s)");
-        } else {
-            System.err.println("Usuario destinatario no encontrado: " + destinatarioUsername);
+            System.out.println("Audio enviado de " + remitenteUsername + " a " + destinatarioUsername +
+                " (formato: " + formato + ", duración: " + duracionSegundos + "s)");
+            return true;
         }
+        return false;
     }
     
     /**
@@ -488,6 +601,12 @@ public class ServidorChat implements Observer {
             
             // Inicializar servicio de transcripción de audio
             inicializarServicioTranscripcion();
+
+            if (gestorServidores != null) {
+                gestorServidores.iniciar(vecinosP2P);
+                System.out.println("Red P2P habilitada. Identificador local: " + identificadorServidor + 
+                    " | Puerto P2P: " + puertoP2P + " | Vecinos configurados: " + (vecinosP2P != null ? vecinosP2P.size() : 0));
+            }
             
             // Crear socket del servidor con host y puerto específicos
             InetAddress direccion;
@@ -661,6 +780,10 @@ public class ServidorChat implements Observer {
                 serverSocket.close();
             }
             
+            if (gestorServidores != null) {
+                gestorServidores.detener();
+            }
+
             ConexionDB.cerrarConexion();
             
             System.out.println("\nServidor detenido");
@@ -673,49 +796,165 @@ public class ServidorChat implements Observer {
     /**
      * Método principal
      */
-    public static void main(String[] args) {
-        // Leer configuración del servidor
-        String host = HOST_DEFAULT;
-        int puerto = PUERTO_DEFAULT;
-        
-        int maxUsuarios = MAX_USUARIOS_DEFAULT;
+    private static ConfiguracionCargada cargarConfiguracion() {
+        Properties props = new Properties();
+        ArrayList<File> candidatos = new ArrayList<>();
 
-        try {
-            Properties config = new Properties();
-            File configFile = new File("src/main/resources/config.properties");
-            
-            // Intentar leer desde varios lugares
-            if (configFile.exists()) {
-                config.load(new FileInputStream(configFile));
-            } else {
-                // Intentar cargar desde el classpath
-                config.load(ServidorChat.class.getClassLoader().getResourceAsStream("config.properties"));
-            }
-            
-            host = config.getProperty("server.host", HOST_DEFAULT);
-            puerto = Integer.parseInt(config.getProperty("server.port", String.valueOf(PUERTO_DEFAULT)));
-            maxUsuarios = Integer.parseInt(config.getProperty(
-                "server.max.usuarios.conectados",
-                String.valueOf(MAX_USUARIOS_DEFAULT)
-            ));
-            
-            System.out.println("Configuración cargada:");
-            System.out.println("  Host: " + host);
-            System.out.println("  Puerto: " + puerto);
-            System.out.println("  Máximo usuarios conectados: " + (maxUsuarios <= 0 ? "Sin límite" : maxUsuarios));
-            System.out.println();
-            
-        } catch (Exception e) {
-            System.out.println("No se pudo cargar configuración, usando valores por defecto:");
-            System.out.println("  Host: " + host);
-            System.out.println("  Puerto: " + puerto);
-            System.out.println("  Máximo usuarios conectados: " + MAX_USUARIOS_DEFAULT);
-            System.out.println();
+        File archivoSistema = crearArchivoDesdeRuta(System.getProperty("configFile"));
+        if (archivoSistema != null) {
+            candidatos.add(archivoSistema);
         }
-        
+
+        File archivoEnv = crearArchivoDesdeRuta(System.getenv("CHAT_SERVER_CONFIG"));
+        if (archivoEnv != null) {
+            candidatos.add(archivoEnv);
+        }
+
+    agregarSiNoNulo(candidatos, crearArchivoDesdeRuta("config.properties"));
+    agregarSiNoNulo(candidatos, crearArchivoDesdeRuta("chat-servidor.properties"));
+    agregarSiNoNulo(candidatos, crearArchivoDesdeRuta("config" + File.separator + "chat-servidor.properties"));
+    agregarSiNoNulo(candidatos, crearArchivoDesdeRuta("config" + File.separator + "config.properties"));
+
+        for (File candidato : candidatos) {
+            if (candidato != null && candidato.exists() && candidato.isFile()) {
+                try (FileInputStream fis = new FileInputStream(candidato)) {
+                    props.load(fis);
+                    return new ConfiguracionCargada(props, "file:" + candidato.getAbsolutePath());
+                } catch (IOException e) {
+                    System.err.println("No se pudo leer configuración desde " + candidato.getAbsolutePath() + ": " + e.getMessage());
+                }
+            }
+        }
+
+    File archivoDev = crearArchivoDesdeRuta("src/main/resources/config.properties");
+        if (archivoDev.exists() && archivoDev.isFile()) {
+            try (FileInputStream fis = new FileInputStream(archivoDev)) {
+                props.load(fis);
+                return new ConfiguracionCargada(props, "file:" + archivoDev.getAbsolutePath());
+            } catch (IOException e) {
+                System.err.println("No se pudo leer configuración desde " + archivoDev.getAbsolutePath() + ": " + e.getMessage());
+            }
+        }
+
+        try (InputStream recurso = ServidorChat.class.getClassLoader().getResourceAsStream("config.properties")) {
+            if (recurso != null) {
+                props.load(recurso);
+                return new ConfiguracionCargada(props, "classpath:config.properties");
+            }
+        } catch (IOException e) {
+            System.err.println("No se pudo leer configuración desde el classpath: " + e.getMessage());
+        }
+
+        return new ConfiguracionCargada(props, "valores por defecto");
+    }
+
+    private static int obtenerEntero(Properties config, String clave, int valorPorDefecto) {
+        String valor = config.getProperty(clave);
+        if (valor == null || valor.isBlank()) {
+            return valorPorDefecto;
+        }
+        try {
+            return Integer.parseInt(valor.trim());
+        } catch (NumberFormatException e) {
+            System.err.println("Valor inválido para " + clave + " (" + valor + "): usando " + valorPorDefecto);
+            return valorPorDefecto;
+        }
+    }
+
+    private static final class ConfiguracionCargada {
+        private final Properties propiedades;
+        private final String origen;
+
+        private ConfiguracionCargada(Properties propiedades, String origen) {
+            this.propiedades = propiedades;
+            this.origen = origen;
+        }
+    }
+
+    private static void agregarSiNoNulo(List<File> lista, File archivo) {
+        if (archivo != null) {
+            lista.add(archivo);
+        }
+    }
+
+    private static File crearArchivoDesdeRuta(String ruta) {
+        if (ruta == null) {
+            return null;
+        }
+        String limpia = ruta.trim();
+        if (limpia.isEmpty()) {
+            return null;
+        }
+        if ((limpia.startsWith("\"") && limpia.endsWith("\"")) || (limpia.startsWith("'") && limpia.endsWith("'"))) {
+            limpia = limpia.substring(1, limpia.length() - 1);
+        }
+        limpia = limpia.replace("\"", "").trim();
+        if (limpia.isEmpty()) {
+            return null;
+        }
+        return new File(limpia);
+    }
+
+    private static Set<InetSocketAddress> parseServidoresVecinos(String peersConfig, int puertoPorDefecto) {
+        Set<InetSocketAddress> vecinos = new HashSet<>();
+        if (peersConfig == null || peersConfig.isBlank()) {
+            return vecinos;
+        }
+
+        String[] entradas = peersConfig.split("[,;\\s]+");
+        for (String entrada : entradas) {
+            if (entrada == null || entrada.isBlank()) {
+                continue;
+            }
+            String[] partes = entrada.split(":");
+            String hostConfig = partes[0].trim();
+            if (hostConfig.isEmpty()) {
+                continue;
+            }
+            int puertoConfig = puertoPorDefecto;
+            if (partes.length > 1) {
+                try {
+                    puertoConfig = Integer.parseInt(partes[1].trim());
+                } catch (NumberFormatException e) {
+                    System.err.println("Puerto P2P inválido en entrada '" + entrada + "': " + e.getMessage());
+                    continue;
+                }
+            }
+            vecinos.add(new InetSocketAddress(hostConfig, puertoConfig));
+        }
+
+        return vecinos;
+    }
+
+    public static void main(String[] args) {
+        ConfiguracionCargada configuracion = cargarConfiguracion();
+        Properties config = configuracion.propiedades;
+
+        // Leer configuración del servidor
+        String host = config.getProperty("server.host", HOST_DEFAULT);
+        int puerto = obtenerEntero(config, "server.port", PUERTO_DEFAULT);
+        int maxUsuarios = obtenerEntero(config, "server.max.usuarios.conectados", MAX_USUARIOS_DEFAULT);
+        int puertoP2P = obtenerEntero(config, "server.p2p.port", puerto + 100);
+        String identificadorServidor = config.getProperty("server.id", host + ":" + puerto).trim();
+        if (identificadorServidor.isEmpty()) {
+            identificadorServidor = host + ":" + puerto;
+        }
+        String peersConfig = config.getProperty("server.peers", "");
+        Set<InetSocketAddress> vecinosConfigurados = parseServidoresVecinos(peersConfig, puertoP2P);
+
+        System.out.println("Configuración cargada desde: " + configuracion.origen);
+        System.out.println("  Host: " + host);
+        System.out.println("  Puerto: " + puerto);
+        System.out.println("  Máximo usuarios conectados: " + (maxUsuarios <= 0 ? "Sin límite" : maxUsuarios));
+        System.out.println("  Id Servidor: " + identificadorServidor);
+        System.out.println("  Puerto P2P: " + puertoP2P);
+        System.out.println("  Vecinos P2P: " + (vecinosConfigurados.isEmpty() ? "Ninguno" : vecinosConfigurados));
+        System.out.println();
+
         // Crear instancia del servidor con la configuración
         ServidorChat servidor = new ServidorChat(host, puerto);
         servidor.setMaxUsuariosConectados(maxUsuarios);
+        servidor.configurarRedServidores(identificadorServidor, puertoP2P, vecinosConfigurados);
         
         // Configurar Look and Feel
         SwingUtilities.invokeLater(() -> {
