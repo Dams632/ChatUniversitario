@@ -2,6 +2,7 @@ package com.chat.servidor.negocio;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -148,12 +149,36 @@ public class ServicioGrupo {
                 ? usuarioDAO.buscarPorUsername(usernameInvitador)
                 : Optional.empty();
 
+            if (invitadorOpt.isEmpty() && usernameInvitador != null && !usernameInvitador.isBlank()) {
+                invitadorOpt = usuarioDAO.asegurarUsuarioRemoto(usernameInvitador);
+            }
+
             Long invitadorId = null;
-            if(invitadorOpt.isPresent()){
-                invitadorId=invitadorOpt.get().getId();
-            }else{
-                invitadorId=-1L;
-                System.out.println("Invitador remoto (p2p): "+ usernameInvitador + "no existe");
+            if (invitadorOpt.isPresent()) {
+                invitadorId = invitadorOpt.get().getId();
+            }
+
+            Long creadorCanalId = invitadorId != null ? invitadorId : invitadoId;
+
+            if (invitadorId == null) {
+                invitadorId = creadorCanalId;
+                System.out.println("Invitador remoto (p2p): " + usernameInvitador +
+                    " no pudo registrarse localmente; se usará el usuario invitado como referente");
+            }
+
+            if (canalDAO.buscarPorId(canalId).isEmpty()) {
+                Canal canalReplica = new Canal();
+                canalReplica.setId(canalId);
+                canalReplica.setNombre(nombreCanal != null ? nombreCanal : "Canal remoto " + canalId);
+                canalReplica.setDescripcion(descripcionCanal);
+                canalReplica.setFoto(fotoCanal);
+                canalReplica.setCreadorId(creadorCanalId);
+                canalReplica.setEsPrivado(false);
+                canalReplica.setFechaCreacion(LocalDateTime.now());
+                canalReplica.setActivo(true);
+                canalDAO.upsertCanalRemoto(canalReplica);
+                System.out.println("Canal remoto sincronizado localmente: " + canalReplica.getNombre() +
+                    " (" + canalId + ")");
             }
 
             if (invitacionDAO.existeInvitacionPendiente(canalId, invitadoId)) {

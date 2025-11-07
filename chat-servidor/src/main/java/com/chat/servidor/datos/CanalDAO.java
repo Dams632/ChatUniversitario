@@ -153,6 +153,33 @@ public class CanalDAO {
             stmt.executeUpdate();
         }
     }
+
+    /**
+     * Registrar o actualizar un canal que proviene de otro servidor.
+     * No modifica la membresía local, solo garantiza que exista el registro.
+     */
+    public void upsertCanalRemoto(Canal canal) throws SQLException {
+        String sql = "INSERT INTO canales (id, nombre, descripcion, foto, creador_id, es_privado, fecha_creacion, activo) "
+                   + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                   + "ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), descripcion = VALUES(descripcion), "
+                   + "foto = VALUES(foto), activo = VALUES(activo)";
+
+        LocalDateTime fechaCreacion = canal.getFechaCreacion() != null
+                ? canal.getFechaCreacion()
+                : LocalDateTime.now();
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setLong(1, canal.getId());
+            stmt.setString(2, canal.getNombre());
+            stmt.setString(3, canal.getDescripcion());
+            stmt.setBytes(4, canal.getFoto());
+            stmt.setLong(5, canal.getCreadorId());
+            stmt.setBoolean(6, canal.isEsPrivado());
+            stmt.setTimestamp(7, Timestamp.valueOf(fechaCreacion));
+            stmt.setBoolean(8, canal.isActivo());
+            stmt.executeUpdate();
+        }
+    }
     
     /**
      * Verificar si un usuario es miembro de un canal

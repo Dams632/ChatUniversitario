@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -88,6 +89,37 @@ public class UsuarioDAO {
         }
         
         return Optional.empty();
+    }
+
+    /**
+     * Garantiza que exista un usuario remoto representado localmente.
+     * Crea un placeholder si no se encuentra.
+     */
+    public Optional<Usuario> asegurarUsuarioRemoto(String username) throws SQLException {
+        if (username == null || username.isBlank()) {
+            return Optional.empty();
+        }
+
+        Optional<Usuario> existente = buscarPorUsername(username);
+        if (existente.isPresent()) {
+            return existente;
+        }
+
+        String emailPlaceholder = username + "@p2p.remote";
+        String sql = "INSERT IGNORE INTO usuarios (username, email, password, foto, en_linea, fecha_registro) "
+                   + "VALUES (?, ?, ?, ?, ?, ?)";
+
+        try (PreparedStatement stmt = conexion.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            stmt.setString(2, emailPlaceholder);
+            stmt.setString(3, "#REMOTE#");
+            stmt.setNull(4, Types.BLOB);
+            stmt.setBoolean(5, false);
+            stmt.setTimestamp(6, Timestamp.valueOf(LocalDateTime.now()));
+            stmt.executeUpdate();
+        }
+
+        return buscarPorUsername(username);
     }
     
     /**
