@@ -891,12 +891,15 @@ public class ManejadorCliente extends Observable implements Runnable {
     /**
      * Enviar notificación del servidor al usuario (mensaje broadcast)
      */
-    public void recibirNotificacionServidor(String mensaje) {
+    public void recibirNotificacionServidor(String mensaje, String servidorOrigen) {
         try {
             ResponseDTO notification = ResponseDTO.exitoso("Notificación del servidor");
             notification.addDato("tipo", "NOTIFICACION_SERVIDOR");
             notification.addDato("mensaje", mensaje);
             notification.addDato("timestamp", com.chat.common.utils.FechaHoraUtil.formatearHoraActual());
+            if (servidorOrigen != null && !servidorOrigen.isBlank()) {
+                notification.addDato("servidorOrigen", servidorOrigen);
+            }
             
             ProtocoloMensaje protocolo = new ProtocoloMensaje(
                 ProtocoloMensaje.TipoProtocolo.NOTIFICACION,
@@ -914,7 +917,7 @@ public class ManejadorCliente extends Observable implements Runnable {
     /**
      * Enviar notificación del servidor en un grupo/canal (mensaje broadcast a canal)
      */
-    public void recibirNotificacionServidorGrupo(Long canalId, String nombreCanal, String mensaje) {
+    public void recibirNotificacionServidorGrupo(Long canalId, String nombreCanal, String mensaje, String servidorOrigen) {
         try {
             ResponseDTO notification = ResponseDTO.exitoso("Notificación del servidor");
             notification.addDato("tipo", "NOTIFICACION_SERVIDOR_GRUPO");
@@ -922,6 +925,9 @@ public class ManejadorCliente extends Observable implements Runnable {
             notification.addDato("nombreCanal", nombreCanal);
             notification.addDato("mensaje", mensaje);
             notification.addDato("timestamp", com.chat.common.utils.FechaHoraUtil.formatearHoraActual());
+            if (servidorOrigen != null && !servidorOrigen.isBlank()) {
+                notification.addDato("servidorOrigen", servidorOrigen);
+            }
             
             ProtocoloMensaje protocolo = new ProtocoloMensaje(
                 ProtocoloMensaje.TipoProtocolo.NOTIFICACION,

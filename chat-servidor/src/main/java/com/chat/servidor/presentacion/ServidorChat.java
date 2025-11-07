@@ -661,9 +661,33 @@ public class ServidorChat implements Observer {
     public void enviarNotificacionInvitacion(String usernameInvitador, String usernameInvitado, 
                                               String nombreCanal, String descripcionCanal, 
                                               byte[] fotoCanal, Long canalId) {
+        if (entregarInvitacionLocal(usernameInvitador, usernameInvitado, nombreCanal, descripcionCanal, fotoCanal, canalId)) {
+            return;
+        }
+
+        if (tablaARPServidores != null && gestorServidores != null) {
+            boolean reenviado = gestorServidores.enviarInvitacionGrupo(
+                usernameInvitador,
+                usernameInvitado,
+                nombreCanal,
+                descripcionCanal,
+                fotoCanal,
+                canalId
+            );
+
+            if (reenviado) {
+                return;
+            }
+        }
+
+        System.out.println("Usuario no conectado o sin ruta P2P para invitación: " + usernameInvitado);
+    }
+
+    public boolean entregarInvitacionLocal(String usernameInvitador, String usernameInvitado,
+                                            String nombreCanal, String descripcionCanal,
+                                            byte[] fotoCanal, Long canalId) {
         ManejadorCliente destinatario = null;
-        
-        // Buscar el manejador del destinatario
+
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
                 if (cliente.isAutenticado() && usernameInvitado.equals(cliente.getUsername())) {
@@ -672,14 +696,15 @@ public class ServidorChat implements Observer {
                 }
             }
         }
-        
+
         if (destinatario != null) {
             destinatario.recibirInvitacion(usernameInvitador, nombreCanal, descripcionCanal, fotoCanal, canalId);
-            System.out.println("Invitación enviada de " + usernameInvitador + " a " + usernameInvitado + 
-                             " para el canal: " + nombreCanal);
-        } else {
-            System.out.println("Usuario no conectado, invitación quedará pendiente: " + usernameInvitado);
+            System.out.println("Invitación entregada de " + usernameInvitador + " a " + usernameInvitado +
+                " para el canal: " + nombreCanal);
+            return true;
         }
+
+        return false;
     }
     
     /**
@@ -863,22 +888,33 @@ public class ServidorChat implements Observer {
      * Enviar mensaje broadcast a todos los usuarios conectados
      */
     public int enviarMensajeBroadcastUsuarios(String mensaje) {
-        int usuariosNotificados = 0;
+        String origen = this.identificadorServidor != null ? this.identificadorServidor : (this.host + ":" + this.puerto);
+        int usuariosNotificados = entregarBroadcastUsuariosLocal(mensaje, origen);
+
+        if (gestorServidores != null) {
+            gestorServidores.difundirBroadcastUsuarios(mensaje, origen);
+        }
         
+        System.out.println("Mensaje broadcast enviado (origen " + origen + ") a " + usuariosNotificados + " usuarios locales");
+        if (gui != null) {
+            gui.agregarLog("Broadcast enviado (" + origen + ") a " + usuariosNotificados + " usuarios locales");
+        }
+        
+        return usuariosNotificados;
+    }
+
+    public int entregarBroadcastUsuariosLocal(String mensaje, String servidorOrigen) {
+        int usuariosNotificados = 0;
+
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
                 if (cliente.isAutenticado()) {
-                    cliente.recibirNotificacionServidor(mensaje);
+                    cliente.recibirNotificacionServidor(mensaje, servidorOrigen);
                     usuariosNotificados++;
                 }
             }
         }
-        
-        System.out.println("Mensaje broadcast enviado a " + usuariosNotificados + " usuarios");
-        if (gui != null) {
-            gui.agregarLog("Broadcast enviado a " + usuariosNotificados + " usuarios");
-        }
-        
+
         return usuariosNotificados;
     }
     
@@ -886,6 +922,7 @@ public class ServidorChat implements Observer {
      * Enviar mensaje broadcast a todos los canales/grupos
      */
     public int enviarMensajeBroadcastCanales(String mensaje) {
+        String servidorOrigen = this.identificadorServidor != null ? this.identificadorServidor : (this.host + ":" + this.puerto);
         try {
             List<Canal> canales = servicioCanal.obtenerTodosLosCanales();
             int canalesNotificados = 0;
@@ -898,7 +935,7 @@ public class ServidorChat implements Observer {
                     for (ManejadorCliente cliente : clientesConectados) {
                         if (cliente.isAutenticado() && cliente.getUsuarioId() != null) {
                             if (miembrosIds.contains(cliente.getUsuarioId())) {
-                                cliente.recibirNotificacionServidorGrupo(canal.getId(), canal.getNombre(), mensaje);
+                                cliente.recibirNotificacionServidorGrupo(canal.getId(), canal.getNombre(), mensaje, servidorOrigen);
                             }
                         }
                     }

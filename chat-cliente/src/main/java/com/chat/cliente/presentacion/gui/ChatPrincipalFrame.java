@@ -203,9 +203,10 @@ public class ChatPrincipalFrame extends JFrame implements Observer {
             java.util.Map<String, Object> datos = (java.util.Map<String, Object>) evento.getDatos();
             String mensaje = (String) datos.get("mensaje");
             String timestamp = (String) datos.get("timestamp");
+            String servidorOrigen = (String) datos.get("servidorOrigen");
             
             SwingUtilities.invokeLater(() -> {
-                mostrarNotificacionServidor(mensaje, timestamp);
+                mostrarNotificacionServidor(mensaje, timestamp, servidorOrigen);
             });
         } else if (evento.getTipo() == EventoChat.TipoEvento.NOTIFICACION_SERVIDOR_GRUPO) {
             // Notificación broadcast del servidor en grupo
@@ -215,9 +216,10 @@ public class ChatPrincipalFrame extends JFrame implements Observer {
             String nombreCanal = (String) datos.get("nombreCanal");
             String mensaje = (String) datos.get("mensaje");
             String timestamp = (String) datos.get("timestamp");
+            String servidorOrigen = (String) datos.get("servidorOrigen");
             
             SwingUtilities.invokeLater(() -> {
-                mostrarNotificacionServidorGrupo(canalId, nombreCanal, mensaje, timestamp);
+                mostrarNotificacionServidorGrupo(canalId, nombreCanal, mensaje, timestamp, servidorOrigen);
             });
         } else if (evento.getTipo() == EventoChat.TipoEvento.DESCONEXION_FORZADA) {
             // El servidor ha cerrado la conexión, desconectar automáticamente
@@ -362,21 +364,28 @@ public class ChatPrincipalFrame extends JFrame implements Observer {
     /**
      * Mostrar notificación broadcast del servidor
      */
-    private void mostrarNotificacionServidor(String mensaje, String timestamp) {
+    private void mostrarNotificacionServidor(String mensaje, String timestamp, String servidorOrigen) {
         // Mostrar diálogo con la notificación
+        StringBuilder cuerpo = new StringBuilder();
+        if (servidorOrigen != null && !servidorOrigen.isBlank()) {
+            cuerpo.append("Origen: ").append(servidorOrigen).append("\n\n");
+        }
+        cuerpo.append(mensaje != null ? mensaje : "");
+        
         JOptionPane.showMessageDialog(this,
-            mensaje,
+            cuerpo.toString(),
             "📢 Notificación del Servidor",
             JOptionPane.INFORMATION_MESSAGE);
         
-        System.out.println("Notificación del servidor: " + mensaje);
+        System.out.println("Notificación del servidor" +
+            (servidorOrigen != null ? " [" + servidorOrigen + "]" : "") + ": " + mensaje);
     }
     
     /**
      * Mostrar notificación broadcast del servidor en un grupo
      */
     private void mostrarNotificacionServidorGrupo(Long canalId, String nombreCanal, 
-                                                  String mensaje, String timestamp) {
+                                                  String mensaje, String timestamp, String servidorOrigen) {
         String identificadorGrupo = "GRUPO_" + canalId;
         
         // Obtener conversación del grupo
@@ -387,8 +396,12 @@ public class ChatPrincipalFrame extends JFrame implements Observer {
         }
         
         // Agregar mensaje del servidor en el chat del grupo como burbuja especial
+        String etiqueta = "🖥️ SERVIDOR";
+        if (servidorOrigen != null && !servidorOrigen.isBlank()) {
+            etiqueta = etiqueta + " (" + servidorOrigen + ")";
+        }
         com.chat.cliente.presentacion.gui.helpers.MensajeRenderer.agregarBurbujaMensaje(
-            conversacion, "🖥️ SERVIDOR", mensaje, timestamp, false
+            conversacion, etiqueta, mensaje, timestamp, false
         );
         
         // Si estamos viendo el chat de este grupo, actualizar la vista
@@ -403,12 +416,20 @@ public class ChatPrincipalFrame extends JFrame implements Observer {
         }
         
         // También mostrar diálogo
+        StringBuilder cuerpo = new StringBuilder();
+        cuerpo.append("Notificación para ").append(nombreCanal != null ? nombreCanal : "(desconocido)").append(":\n\n");
+        if (servidorOrigen != null && !servidorOrigen.isBlank()) {
+            cuerpo.append("Origen: ").append(servidorOrigen).append("\n\n");
+        }
+        cuerpo.append(mensaje != null ? mensaje : "");
+
         JOptionPane.showMessageDialog(this,
-            "Notificación para " + nombreCanal + ":\n\n" + mensaje,
+            cuerpo.toString(),
             "📢 Notificación del Servidor (Grupo)",
             JOptionPane.INFORMATION_MESSAGE);
         
-        System.out.println("Notificación del servidor para grupo " + nombreCanal + ": " + mensaje);
+        System.out.println("Notificación del servidor para grupo " + nombreCanal +
+            (servidorOrigen != null ? " [" + servidorOrigen + "]" : "") + ": " + mensaje);
     }
     
     /**

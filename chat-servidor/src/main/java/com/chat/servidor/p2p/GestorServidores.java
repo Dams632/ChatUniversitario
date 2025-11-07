@@ -176,9 +176,111 @@ public class GestorServidores {
             case AUDIO_PRIVADO:
                 procesarAudioPrivado(origen, mensaje);
                 break;
+            case INVITACION_GRUPO:
+                procesarInvitacionGrupo(origen, mensaje);
+                break;
+            case BROADCAST_USUARIOS:
+                procesarBroadcastUsuarios(origen, mensaje);
+                break;
             default:
                 System.out.println("Tipo de mensaje P2P no soportado: " + mensaje.getTipo());
         }
+    }
+
+    public void difundirBroadcastUsuarios(String mensaje, String servidorOrigen) {
+        if (mensaje == null || mensaje.isBlank()) {
+            return;
+        }
+        Map<String, Object> datos = new HashMap<>();
+        datos.put("mensaje", mensaje);
+        datos.put("servidorOrigen", servidorOrigen != null ? servidorOrigen : servidorId);
+        broadcast(new MensajeP2P(MensajeP2P.Tipo.BROADCAST_USUARIOS, datos));
+    }
+
+    public boolean enviarInvitacionGrupo(String usernameInvitador, String usernameInvitado,
+                                         String nombreCanal, String descripcionCanal,
+                                         byte[] fotoCanal, Long canalId) {
+        if (usernameInvitado == null || usernameInvitado.isBlank()) {
+            return false;
+        }
+
+        String servidorDestino = tablaARP.obtenerServidorDe(usernameInvitado);
+        if (servidorDestino == null || servidorDestino.isBlank()) {
+            return false;
+        }
+
+        if (tablaARP.getServidorLocalId().equals(servidorDestino)) {
+            return servidorChat.entregarInvitacionLocal(
+                usernameInvitador,
+                usernameInvitado,
+                nombreCanal,
+                descripcionCanal,
+                fotoCanal,
+                canalId
+            );
+        }
+
+        ManejadorServidor manejador = conexionesActivas.get(servidorDestino);
+        if (manejador == null) {
+            System.err.println("No hay conexión activa con servidor destino " + servidorDestino +
+                " para invitación de " + usernameInvitado);
+            return false;
+        }
+
+        Map<String, Object> datos = new HashMap<>();
+        datos.put("usernameInvitador", usernameInvitador);
+        datos.put("usernameInvitado", usernameInvitado);
+        datos.put("nombreCanal", nombreCanal);
+        datos.put("descripcionCanal", descripcionCanal);
+        datos.put("fotoCanal", fotoCanal);
+        datos.put("canalId", canalId);
+
+        try {
+            manejador.enviarMensaje(new MensajeP2P(MensajeP2P.Tipo.INVITACION_GRUPO, datos));
+            System.out.println("Invitación a canal reenviada a servidor " + servidorDestino +
+                " para usuario " + usernameInvitado);
+            return true;
+        } catch (IOException e) {
+            System.err.println("Error al reenviar invitación a servidor " + servidorDestino +
+                ": " + e.getMessage());
+            manejarDesconexion(manejador);
+            return false;
+        }
+    }
+
+    private void procesarInvitacionGrupo(ManejadorServidor origen, MensajeP2P mensaje) {
+        String usernameInvitado = mensaje.getString("usernameInvitado");
+        String usernameInvitador = mensaje.getString("usernameInvitador");
+        String nombreCanal = mensaje.getString("nombreCanal");
+        String descripcionCanal = mensaje.getString("descripcionCanal");
+        byte[] fotoCanal = mensaje.getBytes("fotoCanal");
+        Long canalId = mensaje.getLong("canalId");
+
+        boolean entregado = servidorChat.entregarInvitacionLocal(
+            usernameInvitador,
+            usernameInvitado,
+            nombreCanal,
+            descripcionCanal,
+            fotoCanal,
+            canalId
+        );
+
+        if (!entregado) {
+            System.out.println("Usuario " + usernameInvitado +
+                " no está conectado en este servidor para recibir invitación al canal " + nombreCanal);
+        }
+    }
+
+    private void procesarBroadcastUsuarios(ManejadorServidor origen, MensajeP2P mensaje) {
+        String texto = mensaje.getString("mensaje");
+        String origenServidor = mensaje.getString("servidorOrigen");
+        if (texto == null || texto.isBlank()) {
+            return;
+        }
+
+        int entregados = servidorChat.entregarBroadcastUsuariosLocal(texto, origenServidor);
+        System.out.println("Broadcast recibido de " + (origenServidor != null ? origenServidor : origen.getServidorRemotoId()) +
+            " entregado a " + entregados + " usuarios locales");
     }
 
     void notificarFalloConexion(ManejadorServidor manejador, Exception causa) {
@@ -441,7 +543,9 @@ public class GestorServidores {
             USUARIO_CONECTADO,
             USUARIO_DESCONECTADO,
             MENSAJE_PRIVADO,
-            AUDIO_PRIVADO
+            AUDIO_PRIVADO,
+            INVITACION_GRUPO,
+            BROADCAST_USUARIOS
         }
 
         private final Tipo tipo;
