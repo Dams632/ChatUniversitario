@@ -148,7 +148,13 @@ public class ServicioGrupo {
                 ? usuarioDAO.buscarPorUsername(usernameInvitador)
                 : Optional.empty();
 
-            Long invitadorId = invitadorOpt.map(Usuario::getId).orElse(null);
+            Long invitadorId = null;
+            if(invitadorOpt.isPresent()){
+                invitadorId=invitadorOpt.get().getId();
+            }else{
+                invitadorId=-1L;
+                System.out.println("Invitador remoto (p2p): "+ usernameInvitador + "no existe");
+            }
 
             if (invitacionDAO.existeInvitacionPendiente(canalId, invitadoId)) {
                 return false;
