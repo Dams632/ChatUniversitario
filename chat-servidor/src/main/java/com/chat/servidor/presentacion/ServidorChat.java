@@ -12,6 +12,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +90,36 @@ public class ServidorChat implements Observer {
 
         public long getConectadoDesde() {
             return conectadoDesde;
+        }
+    }
+
+    public static class UsuarioRemotoInfo {
+        private final String username;
+        private final String servidorId;
+        private final String host;
+        private final int puerto;
+
+        public UsuarioRemotoInfo(String username, String servidorId, String host, int puerto) {
+            this.username = username;
+            this.servidorId = servidorId;
+            this.host = host;
+            this.puerto = puerto;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public String getServidorId() {
+            return servidorId;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public int getPuerto() {
+            return puerto;
         }
     }
     
@@ -195,6 +226,46 @@ public class ServidorChat implements Observer {
                 return new ConexionRemotaInfo(servidorIdRemoto, hostRemoto, puertoRemoto, conexion.getConectadoDesde());
             })
             .collect(Collectors.toList());
+    }
+
+    public List<UsuarioRemotoInfo> obtenerUsuariosRemotos() {
+        if (tablaARPServidores == null) {
+            return Collections.emptyList();
+        }
+
+        Map<String, String> snapshot = tablaARPServidores.snapshot();
+        List<UsuarioRemotoInfo> usuarios = new ArrayList<>();
+
+        for (Map.Entry<String, String> entry : snapshot.entrySet()) {
+            String username = entry.getKey();
+            String servidorIdUsuario = entry.getValue();
+
+            if (servidorIdUsuario == null || servidorIdUsuario.isBlank()) {
+                continue;
+            }
+
+            if (identificadorServidor.equals(servidorIdUsuario)) {
+                continue; // Es local
+            }
+
+            String hostRemoto = servidorIdUsuario;
+            int puertoRemoto = -1;
+
+            int idx = servidorIdUsuario.lastIndexOf(':');
+            if (idx > 0 && idx < servidorIdUsuario.length() - 1) {
+                hostRemoto = servidorIdUsuario.substring(0, idx);
+                try {
+                    puertoRemoto = Integer.parseInt(servidorIdUsuario.substring(idx + 1));
+                } catch (NumberFormatException ignored) {
+                    puertoRemoto = -1;
+                }
+            }
+
+            usuarios.add(new UsuarioRemotoInfo(username, servidorIdUsuario, hostRemoto, puertoRemoto));
+        }
+
+        usuarios.sort(Comparator.comparing(UsuarioRemotoInfo::getServidorId).thenComparing(UsuarioRemotoInfo::getUsername));
+        return usuarios;
     }
 
     public List<String> obtenerUsuariosLocalesAutenticados() {

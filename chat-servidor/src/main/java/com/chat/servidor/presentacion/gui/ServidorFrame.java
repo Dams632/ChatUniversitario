@@ -49,6 +49,7 @@ import javax.swing.table.DefaultTableModel;
 import com.chat.servidor.presentacion.ManejadorCliente;
 import com.chat.servidor.presentacion.ServidorChat;
 import com.chat.servidor.presentacion.ServidorChat.ConexionRemotaInfo;
+import com.chat.servidor.presentacion.ServidorChat.UsuarioRemotoInfo;
 import com.chat.servidor.presentacion.gui.utils.FontHelper;
 
 /**
@@ -66,8 +67,10 @@ public class ServidorFrame extends JFrame {
     
     private JTable tablaClientes;
     private JTable tablaServidores;
+    private JTable tablaUsuariosRemotos;
     private DefaultTableModel modeloTablaClientes;
     private DefaultTableModel modeloTablaServidores;
+    private DefaultTableModel modeloUsuariosRemotos;
     private JLabel lblEstado;
     private JLabel lblTotalClientes;
     private JButton btnDesconectar;
@@ -218,9 +221,29 @@ public class ServidorFrame extends JFrame {
         JScrollPane scrollServidores = new JScrollPane(tablaServidores);
         scrollServidores.setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 1));
 
+        // Tabla de usuarios remotos
+        String[] columnasRemotos = {"Usuario", "Servidor", "Host", "Puerto"};
+        modeloUsuariosRemotos = new DefaultTableModel(columnasRemotos, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        tablaUsuariosRemotos = new JTable(modeloUsuariosRemotos);
+        tablaUsuariosRemotos.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        tablaUsuariosRemotos.setRowHeight(30);
+        tablaUsuariosRemotos.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+        tablaUsuariosRemotos.getTableHeader().setBackground(new Color(241, 196, 15));
+        tablaUsuariosRemotos.getTableHeader().setForeground(Color.BLACK);
+
+        JScrollPane scrollRemotos = new JScrollPane(tablaUsuariosRemotos);
+        scrollRemotos.setBorder(BorderFactory.createLineBorder(new Color(189, 195, 199), 1));
+
         JTabbedPane pestañas = new JTabbedPane();
         pestañas.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        pestañas.addTab("Clientes", scrollPane);
+        pestañas.addTab("Clientes locales", scrollPane);
+        pestañas.addTab("Usuarios remotos", scrollRemotos);
         pestañas.addTab("Servidores P2P", scrollServidores);
 
         panel.add(pestañas, BorderLayout.CENTER);
@@ -756,14 +779,24 @@ public class ServidorFrame extends JFrame {
      */
     public void actualizarTabla() {
         modeloTablaClientes.setRowCount(0);
+        modeloUsuariosRemotos.setRowCount(0);
         modeloTablaServidores.setRowCount(0);
 
         int clientesActivos = 0;
         List<ConexionRemotaInfo> conexionesP2P = servidor.obtenerConexionesP2PActivas();
-        java.util.Set<String> hostsP2P = conexionesP2P.stream()
-            .map(ConexionRemotaInfo::getHost)
-            .filter(host -> host != null && !host.isBlank())
-            .collect(java.util.stream.Collectors.toSet());
+        List<UsuarioRemotoInfo> usuariosRemotos = servidor.obtenerUsuariosRemotos();
+
+        java.util.Set<String> hostsP2P = new java.util.HashSet<>();
+        for (ConexionRemotaInfo conexion : conexionesP2P) {
+            if (conexion.getHost() != null && !conexion.getHost().isBlank()) {
+                hostsP2P.add(conexion.getHost());
+            }
+        }
+        for (UsuarioRemotoInfo remoto : usuariosRemotos) {
+            if (remoto.getHost() != null && !remoto.getHost().isBlank()) {
+                hostsP2P.add(remoto.getHost());
+            }
+        }
 
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
@@ -788,6 +821,16 @@ public class ServidorFrame extends JFrame {
             }
         }
 
+        for (UsuarioRemotoInfo remoto : usuariosRemotos) {
+            Object[] filaRemoto = {
+                remoto.getUsername(),
+                remoto.getServidorId(),
+                remoto.getHost() != null && !remoto.getHost().isBlank() ? remoto.getHost() : "-",
+                remoto.getPuerto() > 0 ? remoto.getPuerto() : "-"
+            };
+            modeloUsuariosRemotos.addRow(filaRemoto);
+        }
+
         for (ConexionRemotaInfo conexion : conexionesP2P) {
             String hostRemoto = conexion.getHost() != null && !conexion.getHost().isBlank()
                 ? conexion.getHost()
@@ -803,7 +846,7 @@ public class ServidorFrame extends JFrame {
             modeloTablaServidores.addRow(fila);
         }
 
-        lblTotalClientes.setText("Clientes: " + clientesActivos + " | Servidores: " + conexionesP2P.size());
+        lblTotalClientes.setText("Locales: " + clientesActivos + " | Remotos: " + usuariosRemotos.size() + " | Servidores: " + conexionesP2P.size());
     }
     
     /**
