@@ -256,7 +256,9 @@ public class GestorServidores {
         String descripcionCanal = mensaje.getString("descripcionCanal");
         byte[] fotoCanal = mensaje.getBytes("fotoCanal");
         Long canalId = mensaje.getLong("canalId");
-        servidorChat.registrarInvitacionRemota(
+        
+        // PRIMERO registrar la invitación en la base de datos
+        boolean invitacionRegistrada = servidorChat.registrarInvitacionRemota(
             canalId,
             nombreCanal,
             descripcionCanal,
@@ -265,6 +267,12 @@ public class GestorServidores {
             usernameInvitador
         );
 
+        if (!invitacionRegistrada) {
+            System.err.println("No se pudo registrar la invitación remota para " + usernameInvitado);
+            return;
+        }
+
+        // LUEGO intentar notificar al usuario si está conectado
         boolean entregado = servidorChat.entregarInvitacionLocal(
             usernameInvitador,
             usernameInvitado,
@@ -275,8 +283,11 @@ public class GestorServidores {
         );
 
         if (!entregado) {
-            System.out.println("Usuario " + usernameInvitado +
-                " no está conectado en este servidor para recibir invitación al canal " + nombreCanal);
+            System.out.println("Invitación registrada para " + usernameInvitado +
+                " al canal " + nombreCanal + ". Usuario no está conectado, la verá cuando inicie sesión.");
+        } else {
+            System.out.println("Invitación registrada y notificación entregada a " + usernameInvitado +
+                " para el canal " + nombreCanal);
         }
     }
 
