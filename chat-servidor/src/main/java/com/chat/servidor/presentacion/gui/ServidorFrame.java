@@ -759,10 +759,22 @@ public class ServidorFrame extends JFrame {
         modeloTablaServidores.setRowCount(0);
 
         int clientesActivos = 0;
+        List<ConexionRemotaInfo> conexionesP2P = servidor.obtenerConexionesP2PActivas();
+        java.util.Set<String> hostsP2P = conexionesP2P.stream()
+            .map(ConexionRemotaInfo::getHost)
+            .filter(host -> host != null && !host.isBlank())
+            .collect(java.util.stream.Collectors.toSet());
 
         synchronized (clientesConectados) {
             for (ManejadorCliente cliente : clientesConectados) {
                 if (cliente.isConectado()) {
+                    String hostCliente = cliente.getDireccionIPSinPuerto();
+                    if (!cliente.isAutenticado() && hostCliente != null && hostsP2P.contains(hostCliente)) {
+                        // Conexión sin autenticar desde un host que ya está enlazado como servidor P2P.
+                        // Se asume que corresponde al socket P2P de otro servidor; no se muestra en la tabla de clientes.
+                        continue;
+                    }
+
                     Object[] fila = {
                         clientesActivos + 1,
                         cliente.getUsername() != null ? cliente.getUsername() : "No autenticado",
@@ -776,7 +788,6 @@ public class ServidorFrame extends JFrame {
             }
         }
 
-        List<ConexionRemotaInfo> conexionesP2P = servidor.obtenerConexionesP2PActivas();
         for (ConexionRemotaInfo conexion : conexionesP2P) {
             String hostRemoto = conexion.getHost() != null && !conexion.getHost().isBlank()
                 ? conexion.getHost()
